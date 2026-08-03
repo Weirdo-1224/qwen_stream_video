@@ -1,0 +1,26 @@
+video:
+  # 模型每次只看到最近 window_seconds 秒，绝不会读取 window_end 之后的帧。
+  window_seconds: 6.0
+  stride_seconds: 3.0
+  sample_fps: 1.0
+  min_frames: 4
+  max_frames: 12
+  max_image_side: 768
+  jpeg_quality: 80
+
+api:
+  model: qwen3-vl-plus
+  max_tokens: 1800
+  timeout_seconds: 120
+  retries: 2
+
+runtime:
+  carry_previous_state: true
+  realtime: false
+  save_sampled_frames: false
+  max_windows: null
+
+video_metadata:
+  video_name: VS1断路器操动机构储能回路故障排查标准化作业
+  video_category: 断路器操动机构
+  task_background: 国家电网新员工标准化作业培训视频；只抽取当前窗口可见事实，不判断完整流程。
