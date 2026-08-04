@@ -99,13 +99,19 @@ python run.py --video videos/demo.mp4
 python run.py --video videos/demo.mp4 --realtime
 ```
 
-### 6. 关闭上一窗口状态传递
+### 6. 保存采样帧
+
+```bash
+python run.py --video videos/demo.mp4 --dry-run --save-frames --max-windows 3
+```
+
+### 7. 关闭上一窗口状态传递
 
 ```bash
 python run.py --video videos/demo.mp4 --no-state
 ```
 
-### 7. 限制窗口范围
+### 8. 限制窗口范围
 
 ```bash
 python run.py --video videos/demo.mp4 --max-windows 5 --start-time 10 --end-time 60
@@ -123,6 +129,7 @@ python run.py --video videos/demo.mp4 --max-windows 5 --start-time 10 --end-time
 --end-window INDEX       忽略全局序号大于该值的窗口
 --max-windows N          最多处理 N 个窗口
 --realtime               按视频逻辑时间等待
+--save-frames            保存本次运行的采样帧到 sampled_frames/
 --dry-run                抽帧并构建提示词，但不调用模型
 --validate-only          检查视频并报告窗口，不调用模型
 --no-state               不将上一窗口摘要传入下一窗口提示词
@@ -162,21 +169,24 @@ sampling:
 
 ```text
 outputs/<YYYYMMDD_HHMMSS_experiment_hash>/
-├── metadata.json
-├── config.json
+├── run_meta.json
+├── resolved_config.yaml
 ├── windows.jsonl
 ├── observations.jsonl
-├── metrics.jsonl
+├── api_metrics.jsonl
 ├── errors.jsonl
-└── raw_responses/
-    └── window_0000_0000.txt
+├── raw_responses/
+│   └── window_0000_0000.txt
+└── sampled_frames/         # when --save-frames or storage.save_sampled_frames=true
+    └── window_0000_0000/
+        └── frame_000_0.000.jpg
 ```
 
-- `metadata.json`：运行元数据、视频哈希、最终统计。
-- `config.json`：解析后的配置，API Key 已脱敏。
+- `run_meta.json`：运行元数据、视频 SHA256、最终模型来源、提示词哈希、最终统计。
+- `resolved_config.yaml`：解析后的配置，API Key 已脱敏。
 - `windows.jsonl`：所有选中的窗口。
 - `observations.jsonl`：仅包含通过 Schema 和语义校验的观察结果。
-- `metrics.jsonl`：每个窗口的 API 请求指标。
+- `api_metrics.jsonl`：每个窗口的 API 请求指标。
 - `errors.jsonl`：失败的窗口及其错误信息，关联到原始响应路径。
 
 `observations.jsonl` 每行对应一个窗口：

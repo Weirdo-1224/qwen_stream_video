@@ -1,22 +1,27 @@
 # S1-T07：提示词与响应解析
 
-**状态：DONE**　**依赖：S1-T05、S1-T06**
+**状态：DONE（已按单 ObservationBatch 协议更新）**　**依赖：S1-T05、S1-T06**
 
 ## 目标
 
-构建增量观察提示词，并安全解析模型原始响应。
+构建增量观察提示词，并安全解析模型原始响应为单个 `ObservationBatch`。
 
 ## 修改
 
-- 编写系统提示词：仅当前窗口、禁止未来推断、仅 JSON、证据帧为样本索引。
-- 编写动态用户提示词：窗口、帧时间、视频背景和可选上一窗口摘要。
-- 实现提示词构建器和解析流程：去 Markdown 代码块 → 提取 JSON → `json.loads` → Schema → 语义校验。
-- 定义解析/Schema/语义异常；禁止 `eval()`。
-- 添加正常、代码块、非法 JSON 和非法 Schema 测试。
+- 更新 `src/qwen_stream_video/inference/prompts.py`：
+  - 系统与用户提示词明确要求模型只输出当前窗口的一份 `ObservationBatch` JSON；
+  - 提示词字段与新 `domain/observation.py` 协议对齐；
+  - 用户提示词支持传入上一窗口候选实体摘要。
+- 更新 `prompts/system_prompt.txt` 与 `prompts/user_prompt.txt`：与新的单窗口 Schema 对齐。
+- 更新 `src/qwen_stream_video/inference/parser.py`：
+  - 处理流程：原始文本 → 去 Markdown 代码块 → 提取最外层 JSON 对象 → `json.loads` → `ObservationBatch.model_validate` → 语义校验；
+  - 不再处理或接受 `observations` 外层列表；
+  - 解析错误映射为项目异常，禁止 `eval()`。
+- 重写 `tests/unit/test_prompts_parser.py`：覆盖用户提示词构建、正常 JSON、Markdown 代码块、包裹文本、非法 JSON、非法 Schema、语义错误、顶层列表拒绝及 `eval` 禁止等场景。
 
 ## 不做
 
-不调用模型；解析失败不触发重发。
+不调用模型；解析失败不触发重发；不实现全局实体注册。
 
 ## 验收
 
@@ -25,12 +30,11 @@
 ## 完成记录
 
 - 修改文件：
-  - 新增 `src/qwen_stream_video/inference/prompts.py`：定义 `PromptBuilder` 与默认系统/用户提示词模板，支持窗口、帧时间、视频背景与上一窗口摘要的动态拼接。
-  - 新增 `src/qwen_stream_video/inference/parser.py`：定义 `ResponseParser`，完成去 Markdown 代码围栏、JSON 提取、`json.loads`、Pydantic Schema 校验与语义校验流程。
-  - 更新 `src/qwen_stream_video/inference/__init__.py`：导出 `PromptBuilder` 与 `ResponseParser`。
-  - 更新 `prompts/system_prompt.txt` 与 `prompts/user_prompt.txt`：与新 Observation Schema 对齐。
-  - 新增 `tests/unit/test_prompts_parser.py`：覆盖用户提示词构建、正常 JSON、Markdown 代码块、包裹文本、非法 JSON、非法 Schema 及语义错误等场景。
+  - 更新 `src/qwen_stream_video/inference/prompts.py`。
+  - 更新 `src/qwen_stream_video/inference/parser.py`。
+  - 更新 `prompts/system_prompt.txt` 与 `prompts/user_prompt.txt`。
+  - 重写 `tests/unit/test_prompts_parser.py`。
 - 验证结果：
   - `.venv/Scripts/python -m pytest tests/unit/test_prompts_parser.py -q`：11 个测试全部通过。
-  - `.venv/Scripts/python -m pytest tests/ -q`：67 个测试全部通过。
+  - `.venv/Scripts/python -m pytest tests/ -q`：98 个测试全部通过。
   - `.venv/Scripts/python -m ruff check .`：无错误。
