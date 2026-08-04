@@ -1,7 +1,8 @@
 """Parsing and validation of model output for incremental observations.
 
-The :class:`ResponseParser` strips Markdown fences, extracts JSON, validates it
-against the :class:`ObservationBatch` schema and runs semantic validation.
+The :class:`ResponseParser` strips Markdown fences, extracts the top-level JSON
+object, validates it against the :class:`ObservationBatch` schema and runs
+semantic validation.
 """
 
 from __future__ import annotations
@@ -38,8 +39,8 @@ class ResponseParser:
     ) -> tuple[ObservationBatch, list[str]]:
         """Parse ``raw_text`` into an observation batch.
 
-        The parser removes Markdown code fences, extracts the JSON object or
-        array, deserializes it into :class:`ObservationBatch` and runs semantic
+        The parser removes Markdown code fences, extracts the top-level JSON
+        object, deserializes it into :class:`ObservationBatch` and runs semantic
         validation.
 
         Args:
@@ -68,37 +69,26 @@ class ResponseParser:
 
     @staticmethod
     def _extract_json(raw_text: str) -> str:
-        """Strip Markdown fences and isolate the top-level JSON payload."""
+        """Strip Markdown fences and isolate the top-level JSON object."""
         text = raw_text.strip()
 
         match = CODE_BLOCK_RE.search(text)
         if match:
             text = match.group(1).strip()
 
-        start_delimiters = "{["
-        end_delimiters = "}]"
-
-        start_idx = -1
-        for idx, char in enumerate(text):
-            if char in start_delimiters:
-                start_idx = idx
-                break
+        start_idx = text.find("{")
         if start_idx == -1:
-            raise ModelOutputParseError("No JSON object or array found in model output")
+            raise ModelOutputParseError("No JSON object found in model output")
 
-        end_idx = -1
-        for idx in range(len(text) - 1, start_idx - 1, -1):
-            if text[idx] in end_delimiters:
-                end_idx = idx
-                break
+        end_idx = text.rfind("}")
         if end_idx == -1 or end_idx < start_idx:
-            raise ModelOutputParseError("Unterminated JSON object or array in model output")
+            raise ModelOutputParseError("Unterminated JSON object in model output")
 
         return text[start_idx : end_idx + 1]
 
     @staticmethod
-    def _load_json(json_str: str) -> dict | list:
-        """Parse the JSON string into a Python object."""
+    def _load_json(json_str: str) -> dict:
+        """Parse the JSON string into a Python dict."""
         try:
             return json.loads(json_str)
         except json.JSONDecodeError as exc:
@@ -107,7 +97,7 @@ class ResponseParser:
             ) from exc
 
     @staticmethod
-    def _validate_schema(data: dict | list) -> ObservationBatch:
+    def _validate_schema(data: dict) -> ObservationBatch:
         """Validate the parsed data against the observation batch schema."""
         try:
             return ObservationBatch.model_validate(data)

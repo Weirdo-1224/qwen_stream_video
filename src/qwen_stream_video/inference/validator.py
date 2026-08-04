@@ -70,51 +70,57 @@ class ObservationSemanticValidator:
                 returned window fields are overwritten with the real values.
 
         Returns:
-            A list of warning strings, one per non-fatal issue found.
+            A tuple of warning strings, one per non-fatal issue found.
 
         Raises:
             ModelOutputSemanticError: If the batch violates a hard semantic
                 constraint and cannot be treated as a valid observation.
         """
-        warnings: list[str] = []
-        frame_count = len(sampled_frames)
+        if window is not None:
+            self._override_window_fields(batch, window)
 
-        for obs in batch.observations:
-            if window is not None:
-                self._override_window_fields(obs, window)
-            entity_ids = {e.local_id for e in obs.entities}
-            self._validate_id_uniqueness(obs)
-            self._validate_references(obs, entity_ids)
-            self._validate_evidence_frames(obs, frame_count)
-            warnings.extend(self._validate_action_vocabulary(obs))
+        entity_ids = {e.local_id for e in batch.entities}
+        self._validate_id_uniqueness(batch)
+        self._validate_references(batch, entity_ids)
+        self._validate_evidence_frames(batch, len(sampled_frames))
+        warnings = self._validate_action_vocabulary(batch)
 
         return warnings
 
     def _override_window_fields(
-        self, obs: WindowObservation, window: VideoWindow
+        self, batch: ObservationBatch, window: VideoWindow
     ) -> None:
         """Replace model-reported window fields with the real window values."""
-        obs.window_global_index = window.global_index
-        obs.window_run_index = window.run_index
-        obs.window_start_seconds = window.start_seconds
-        obs.window_end_seconds = window.end_seconds
+        batch.window = WindowObservation(
+            global_index=window.global_index,
+            start_seconds=window.start_seconds,
+            end_seconds=window.end_seconds,
+        )
 
-    def _validate_id_uniqueness(self, obs: WindowObservation) -> None:
+    def _validate_id_uniqueness(self, batch: ObservationBatch) -> None:
         """Ensure entity and action local IDs are unique within the window."""
-        entity_ids = [e.local_id for e in obs.entities]
+        entity_ids = [e.local_id for e in batch.entities]
         duplicates = self._find_duplicates(entity_ids)
         if duplicates:
             raise ModelOutputSemanticError(
-                f"Duplicate entity local_id(s) in window {obs.window_global_index}: "
+                f"Duplicate entity local_id(s) in window {batch.window.global_index}: "
                 f"{sorted(duplicates)}"
             )
 
-        action_ids = [a.local_id for a in obs.actions]
+        action_ids = [a.local_id for a in batch.actions]
         duplicates = self._find_duplicates(action_ids)
         if duplicates:
             raise ModelOutputSemanticError(
-                f"Duplicate action local_id(s) in window {obs.window_global_index}: "
+                f"Duplicate action local_id(s) in window {batch.window.global_index}: "
                 f"{sorted(duplicates)}"
+            )
+
+        attribute_entity_ids = [a.entity_local_id for a in batch.attribute_observations]
+        duplicates = self._find_duplicates(attribute_entity_ids)
+        if duplicates:
+            raise ModelOutputSemanticError(
+                f"Duplicate attribute entity_local_id(s) in window "
+                f"{batch.window.global_index}: {sorted(duplicates)}"
             )
 
     def _find_duplicates(self, items: list[str]) -> set[str]:
@@ -128,48 +134,97 @@ class ObservationSemanticValidator:
         return duplicates
 
     def _validate_references(
-        self, obs: WindowObservation, entity_ids: set[str]
+        self, batch: ObservationBatch, entity_ids: set[str]
     ) -> None:
-        """Ensure every action references existing entities."""
-        for action in obs.actions:
-            if action.actor_id not in entity_ids:
+        """Ensure every action and attribute references existing entities."""
+        for action in batch.actions:
+            if action.actor_local_id not in entity_ids:
                 raise ModelOutputSemanticError(
                     f"Action {action.local_id} references missing actor "
-                    f"{action.actor_id} in window {obs.window_global_index}"
+                    f"{action.actor_local_id} in window {batch.window.global_index}"
                 )
-            if action.target_id is not None and action.target_id not in entity_ids:
+            if (
+                action.target_local_id is not None
+                and action.target_local_id not in entity_ids
+            ):
                 raise ModelOutputSemanticError(
                     f"Action {action.local_id} references missing target "
-                    f"{action.target_id} in window {obs.window_global_index}"
+                    f"{action.target_local_id} in window {batch.window.global_index}"
+                )
+            if (
+                action.tool_local_id is not None
+                and action.tool_local_id not in entity_ids
+            ):
+                raise ModelOutputSemanticError(
+                    f"Action {action.local_id} references missing tool "
+                    f"{action.tool_local_id} in window {batch.window.global_index}"
+                )
+
+        for attribute in batch.attribute_observations:
+            if attribute.entity_local_id not in entity_ids:
+                raise ModelOutputSemanticError(
+                    f"Attribute {attribute.attribute} references missing entity "
+                    f"{attribute.entity_local_id} in window {batch.window.global_index}"
                 )
 
     def _validate_evidence_frames(
-        self, obs: WindowObservation, frame_count: int
+        self, batch: ObservationBatch, frame_count: int
     ) -> None:
         """Ensure all evidence frame indices are in range, deduplicated and sorted."""
-        for action in obs.actions:
-            indices = action.evidence_frame_sample_indices
-            for idx in indices:
-                if not 0 <= idx < frame_count:
-                    raise ModelOutputSemanticError(
-                        f"Action {action.local_id} has out-of-range evidence frame "
-                        f"index {idx} in window {obs.window_global_index}; "
-                        f"valid range is [0, {frame_count - 1}]"
-                    )
-            # Mutate in place to keep indices clean and deterministic.
-            action.evidence_frame_sample_indices = sorted(set(indices))
+        for entity in batch.entities:
+            self._check_and_clean_evidence_frames(
+                entity.evidence_frames, frame_count, "entity", entity.local_id, batch
+            )
+        for action in batch.actions:
+            self._check_and_clean_evidence_frames(
+                action.evidence_frames, frame_count, "action", action.local_id, batch
+            )
+        for attribute in batch.attribute_observations:
+            self._check_and_clean_evidence_frames(
+                attribute.evidence_frames,
+                frame_count,
+                "attribute",
+                attribute.attribute,
+                batch,
+            )
+        for uncertainty in batch.uncertainties:
+            self._check_and_clean_evidence_frames(
+                uncertainty.evidence_frames,
+                frame_count,
+                "uncertainty",
+                uncertainty.description[:40],
+                batch,
+            )
 
-    def _validate_action_vocabulary(self, obs: WindowObservation) -> list[str]:
+    def _check_and_clean_evidence_frames(
+        self,
+        indices: list[int],
+        frame_count: int,
+        item_type: str,
+        item_id: str,
+        batch: ObservationBatch,
+    ) -> None:
+        """Validate a list of evidence frame indices and mutate it in place."""
+        for idx in indices:
+            if not 0 <= idx < frame_count:
+                raise ModelOutputSemanticError(
+                    f"{item_type.capitalize()} {item_id} has out-of-range evidence frame "
+                    f"index {idx} in window {batch.window.global_index}; "
+                    f"valid range is [0, {frame_count - 1}]"
+                )
+        indices[:] = sorted(set(indices))
+
+    def _validate_action_vocabulary(self, batch: ObservationBatch) -> list[str]:
         """Map unknown action types to ``unknown`` and return warnings."""
         warnings: list[str] = []
-        for action in obs.actions:
+        for action in batch.actions:
             if action.action_type not in self.allowed_actions:
                 original = action.action_type
                 action.action_type = "unknown"
                 warnings.append(
-                    f"Action {action.local_id} in window {obs.window_global_index} "
+                    f"Action {action.local_id} in window {batch.window.global_index} "
                     f"has unknown action type '{original}'; mapped to 'unknown'. "
-                    f"Description: {action.attributes or 'no attributes'}"
+                    f"Description: {action.description or 'no description'}"
                 )
         return warnings
 

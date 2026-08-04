@@ -10,28 +10,28 @@ A :class:`FakeQwenClient` is provided for offline tests and local development.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
 from typing import Any
 
 import openai
 from openai import APIConnectionError, APIStatusError, APITimeoutError
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import ModelConfig
 from ..exceptions import InferenceNetworkError, InferenceRateLimitError, InferenceServerError
 
 
-@dataclass
-class RawInferenceResult:
+class RawInferenceResult(BaseModel):
     """Raw response and request metrics from a vision-language model call."""
 
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
     raw_text: str
-    model: str
+    resolved_model: str
     latency_seconds: float
-    request_id: str | None
-    prompt_tokens: int | None
-    completion_tokens: int | None
-    total_tokens: int | None
-    attempts: int
+    request_id: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    attempt_count: int
 
 
 class QwenClient:
@@ -96,13 +96,12 @@ class QwenClient:
                 usage = response.usage
                 return RawInferenceResult(
                     raw_text=raw_text,
-                    model=self.config.name,
+                    resolved_model=self.config.name,
                     latency_seconds=latency_seconds,
                     request_id=response.id,
-                    prompt_tokens=usage.prompt_tokens if usage else None,
-                    completion_tokens=usage.completion_tokens if usage else None,
-                    total_tokens=usage.total_tokens if usage else None,
-                    attempts=attempt,
+                    input_tokens=usage.prompt_tokens if usage else None,
+                    output_tokens=usage.completion_tokens if usage else None,
+                    attempt_count=attempt,
                 )
             except APITimeoutError as exc:
                 last_error = InferenceNetworkError(
@@ -151,22 +150,22 @@ class QwenClient:
         ]
 
 
-@dataclass
-class FakeQwenClient:
+class FakeQwenClient(BaseModel):
     """Offline stand-in for :class:`QwenClient`.
 
     Returns a fixed response on every call and records inputs for assertions in
     tests.
     """
 
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
+
     response_text: str = "{}"
     latency_seconds: float = 0.0
     request_id: str = "fake-request-id"
-    model: str = "fake-qwen-model"
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_tokens: int = 0
-    calls: list[dict[str, Any]] = field(default_factory=list)
+    resolved_model: str = "fake-qwen-model"
+    input_tokens: int = 0
+    output_tokens: int = 0
+    calls: list[dict[str, Any]] = Field(default_factory=list)
 
     def infer(
         self,
@@ -184,11 +183,10 @@ class FakeQwenClient:
         )
         return RawInferenceResult(
             raw_text=self.response_text,
-            model=self.model,
+            resolved_model=self.resolved_model,
             latency_seconds=self.latency_seconds,
             request_id=self.request_id,
-            prompt_tokens=self.prompt_tokens,
-            completion_tokens=self.completion_tokens,
-            total_tokens=self.total_tokens,
-            attempts=1,
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            attempt_count=1,
         )
