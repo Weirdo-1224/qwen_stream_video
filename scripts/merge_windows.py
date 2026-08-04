@@ -1,7 +1,7 @@
 """合并多个分段的 windows.jsonl 结果为一个完整序列。"""
 import json
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -65,7 +65,7 @@ def merge_run_dirs(dirs: list[Path], merged_name: str) -> Path:
     # 写入合并后的 meta
     merged_meta = {
         "merged_from": [str(d) for d in dirs],
-        "merged_at": datetime.now().isoformat(timespec="seconds"),
+        "merged_at": datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
         "total_windows": len(compact_records),
         "source_metas": metas,
     }
@@ -102,7 +102,7 @@ if __name__ == "__main__":
     for d in dirs:
         print(f"  - {d.name}")
 
-    default_name = f"{dirs[0].stem}_merged_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    default_name = f"{dirs[0].stem}_merged_{datetime.now(tz=timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     output_name = args.output or default_name
     merged_dir = merge_run_dirs(dirs, output_name)
     print(f"合并完成：{merged_dir}")

@@ -61,7 +61,6 @@ def main():
         for entity in r["analysis"].get("entities", []):
             eid = entity.get("entity_id", "unknown")
             name = entity.get("name", "unknown")
-            etype = entity.get("type", "unknown")
             key = f"{eid} ({name})"
             entity_counter[key] += 1
             entity_details[key].append((r["window_index"], entity.get("attributes", {}).get("visible_state", "")))

@@ -1,7 +1,8 @@
 """生成一个用于测试的 15 秒 720p 视频。"""
+from pathlib import Path
+
 import cv2
 import numpy as np
-from pathlib import Path
 
 output_path = Path("videos/test_15s.mp4")
 width, height = 1280, 720
