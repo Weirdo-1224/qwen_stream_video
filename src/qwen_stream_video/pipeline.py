@@ -42,6 +42,7 @@ class StreamingVideoPipeline:
         self.parser = parser or ResponseParser()
         self.video_context = video_context or {}
         self._previous_summary: str | None = None
+        self._previous_entities: list[dict[str, Any]] = []
 
     def run(
         self,
@@ -67,7 +68,7 @@ class StreamingVideoPipeline:
             start_window: Skip windows with global_index below this.
             end_window: Skip windows with global_index above this.
             max_windows: Process at most this many selected windows.
-            dry_run: Sample frames and build prompts but do not call the model.
+            dry_run: Sample frames and build prompts without calling the model.
             validate_only: Check the video and report windows without sampling.
             realtime: Override the configured realtime flag.
             carry_previous_state: Override the configured state-carry flag.
@@ -105,7 +106,7 @@ class StreamingVideoPipeline:
 
         output_root = output_dir if output_dir is not None else self.config.storage.output_root
         storage_config = self._config_with_output_root(output_root)
-        storage = RunStorage(storage_config, metadata)
+        storage = RunStorage(storage_config, metadata, prompt_builder=self.prompt_builder)
         storage.initialize()
         storage.write_windows(selected)
 
@@ -201,6 +202,7 @@ class StreamingVideoPipeline:
                 sampled_frames,
                 video_context=self.video_context,
                 previous_summary=self._previous_summary if carry_previous_state else None,
+                previous_entities=self._previous_entities if carry_previous_state else None,
             )
 
             if self.client is None:
@@ -220,7 +222,7 @@ class StreamingVideoPipeline:
             for warning in warnings:
                 logger.warning("Window %d: %s", window.global_index, warning)
 
-            observation = batch.observations[0] if batch.observations else None
+            observation = batch
             storage.write_window_result(
                 window,
                 sampled_frames,
@@ -229,8 +231,18 @@ class StreamingVideoPipeline:
                 error=None,
             )
 
-            if carry_previous_state and observation is not None and observation.summary:
-                self._previous_summary = observation.summary
+            if carry_previous_state and observation is not None:
+                if observation.summary:
+                    self._previous_summary = observation.summary
+                self._previous_entities = [
+                    {
+                        "candidate_global_id": entity.candidate_global_id,
+                        "entity_type": entity.entity_type.value,
+                        "description": entity.description or entity.name,
+                    }
+                    for entity in observation.entities
+                    if entity.candidate_global_id is not None
+                ]
 
         except KeyboardInterrupt:
             raise

@@ -19,23 +19,22 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_FAKE_RESPONSE = """{
   "schema_version": "1.0",
-  "observations": [
-    {
-      "schema_version": "1.0",
-      "window_run_index": 0,
-      "window_global_index": 0,
-      "window_start_seconds": 0.0,
-      "window_end_seconds": 1.0,
-      "scene": {
-        "description": "A test scene.",
-        "viewpoint": "front"
-      },
-      "entities": [],
-      "actions": [],
-      "uncertainties": [],
-      "summary": "No observations in this window."
-    }
-  ]
+  "window": {
+    "global_index": 0,
+    "start_seconds": 0.0,
+    "end_seconds": 1.0
+  },
+  "summary": "No observations in this window.",
+  "scene": {
+    "camera_change": false,
+    "view_type": "unknown",
+    "visibility": "unknown",
+    "description": "A test scene."
+  },
+  "entities": [],
+  "actions": [],
+  "attribute_observations": [],
+  "uncertainties": []
 }"""
 
 
@@ -114,6 +113,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not carry the previous window summary into the next prompt.",
     )
     parser.add_argument(
+        "--save-frames",
+        action="store_true",
+        help="Persist sampled frames for this run.",
+    )
+    parser.add_argument(
         "--print-config",
         action="store_true",
         help="Resolve configuration, print a summary, and exit.",
@@ -134,6 +138,9 @@ def _build_config(args: argparse.Namespace) -> Any:
         cli_overrides["runtime.realtime"] = True
     if args.no_state:
         cli_overrides["runtime.carry_previous_state"] = False
+    if args.save_frames:
+        cli_overrides["runtime.save_sampled_frames"] = True
+        cli_overrides["storage.save_sampled_frames"] = True
     if args.output_dir:
         cli_overrides["storage.output_root"] = args.output_dir
     if args.max_windows:

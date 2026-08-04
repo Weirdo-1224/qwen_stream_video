@@ -17,15 +17,19 @@ class SampledFrame(BaseModel):
     """A single real frame sampled from a video window.
 
     The raw ``image`` is kept as a NumPy array for downstream use and is
-    excluded from serialization.
+    excluded from serialization. The ``sample_index`` is the position within
+    the sampled frames for this window; ``frame_index`` is the approximate
+    original video frame number.
     """
 
     model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
     run_index: int = Field(ge=0)
     global_index: int = Field(ge=0)
-    timestamp: float = Field(ge=0)
+    sample_index: int = Field(ge=0)
     frame_index: int = Field(ge=0)
+    timestamp_seconds: float = Field(ge=0)
+    encoded_image: str | None = None
     image: np.ndarray = Field(exclude=True)
 
 
@@ -102,12 +106,14 @@ def sample_window_frames(
                     f"needed {count}, got only {len(frames)} unique frames"
                 )
 
+            frame_index = round(timestamp * metadata.fps)
             frames.append(
                 SampledFrame(
                     run_index=window.run_index,
                     global_index=window.global_index,
-                    timestamp=timestamp,
-                    frame_index=i,
+                    sample_index=i,
+                    frame_index=frame_index,
+                    timestamp_seconds=timestamp,
                     image=image,
                 )
             )

@@ -17,9 +17,11 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from ..config import AppConfig
-from ..domain import WindowObservation
-from ..inference import RawInferenceResult
+from ..domain import ObservationBatch
+from ..inference import PromptBuilder, RawInferenceResult
 from ..video import SampledFrame, VideoMetadata, VideoWindow
 
 
@@ -43,6 +45,15 @@ def _generate_unique_run_id(experiment_name: str, output_root: str | Path) -> st
     raise RuntimeError("Unable to generate a unique run id after 100 attempts")
 
 
+def _file_sha256(path: str | Path) -> str:
+    """Return the SHA256 hex digest of a file's contents."""
+    hasher = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(8192), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
 def _video_hash(video_metadata: VideoMetadata) -> str:
     """Return a deterministic hash identifying the video metadata."""
     content = "|".join(
@@ -56,6 +67,21 @@ def _video_hash(video_metadata: VideoMetadata) -> str:
         ]
     )
     return hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+
+
+def _config_sha256(config: AppConfig) -> str:
+    """Return the SHA256 hex digest of the resolved, redacted configuration."""
+    config_dict = config.model_dump()
+    if config_dict.get("model", {}).get("api_key"):
+        config_dict["model"]["api_key"] = "***REDACTED***"
+    return hashlib.sha256(
+        json.dumps(config_dict, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def _prompt_sha256(text: str) -> str:
+    """Return the SHA256 hex digest of a prompt template."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _package_version(package_name: str) -> str | None:
@@ -88,6 +114,7 @@ class RunStorage:
         config: AppConfig,
         video_metadata: VideoMetadata,
         run_id: str | None = None,
+        prompt_builder: PromptBuilder | None = None,
     ) -> None:
         """Initialize storage and create the unique run directory.
 
@@ -96,12 +123,15 @@ class RunStorage:
             video_metadata: Metadata for the video being analysed.
             run_id: Optional explicit run id. When omitted, a unique id is
                 generated automatically.
+            prompt_builder: Prompt builder used for the run; used to record
+                prompt template hashes in the run metadata.
 
         Raises:
             FileExistsError: If the requested run directory already exists.
         """
         self.config = config
         self.video_metadata = video_metadata
+        self.prompt_builder = prompt_builder
         self.run_id = run_id or _generate_unique_run_id(
             config.experiment.name, config.storage.output_root
         )
@@ -110,8 +140,8 @@ class RunStorage:
 
         self._raw_dir = self.run_dir / "raw_responses"
         self._frame_dir = self.run_dir / "sampled_frames"
-        self._metadata_path = self.run_dir / "metadata.json"
-        self._metrics_path = self.run_dir / "metrics.jsonl"
+        self._metadata_path = self.run_dir / "run_meta.json"
+        self._metrics_path = self.run_dir / "api_metrics.jsonl"
         self._errors_path = self.run_dir / "errors.jsonl"
         self._observations_path = self.run_dir / "observations.jsonl"
         self._windows_path = self.run_dir / "windows.jsonl"
@@ -122,6 +152,7 @@ class RunStorage:
         self._metrics_file = None
         self._errors_file = None
         self._observations_file = None
+        self._start_time: datetime | None = None
 
     def _ensure_unique_run_dir(self) -> None:
         """Create the run directory, failing if it already exists."""
@@ -131,6 +162,7 @@ class RunStorage:
 
     def initialize(self) -> None:
         """Write static run artefacts and open append-only JSONL files."""
+        self._start_time = datetime.now(tz=timezone.utc)
         self._raw_dir.mkdir(exist_ok=True)
         self._frame_dir.mkdir(exist_ok=True)
         self._write_config()
@@ -150,7 +182,7 @@ class RunStorage:
         window: VideoWindow,
         sampled_frames: list[SampledFrame],
         raw_result: RawInferenceResult | None = None,
-        observation: WindowObservation | None = None,
+        observation: ObservationBatch | None = None,
         error: Exception | None = None,
         *,
         save_frames: bool | None = None,
@@ -158,7 +190,7 @@ class RunStorage:
         """Persist one window's results.
 
         Validated observations are appended to ``observations.jsonl``. API
-        metrics are appended to ``metrics.jsonl``. Errors are appended to
+        metrics are appended to ``api_metrics.jsonl``. Errors are appended to
         ``errors.jsonl`` and reference the saved raw response when available.
         Raw responses and sampled frames are saved according to configuration
         or the ``save_frames`` override.
@@ -203,6 +235,9 @@ class RunStorage:
             "window_count": self._window_count,
             "observation_count": self._observation_count,
             "error_count": self._error_count,
+            "processed_windows": self._window_count,
+            "successful_windows": self._observation_count,
+            "failed_windows": self._error_count,
         }
         if stats:
             final_stats.update(stats)
@@ -213,26 +248,44 @@ class RunStorage:
         config_dict = self.config.model_dump()
         if config_dict.get("model", {}).get("api_key"):
             config_dict["model"]["api_key"] = "***REDACTED***"
-        with (self.run_dir / "config.json").open("w", encoding="utf-8") as handle:
-            json.dump(config_dict, handle, ensure_ascii=False, indent=2)
+        with (self.run_dir / "resolved_config.yaml").open("w", encoding="utf-8") as handle:
+            yaml.safe_dump(config_dict, handle, sort_keys=True, allow_unicode=True)
 
     def _build_initial_metadata(self) -> dict[str, Any]:
         """Assemble the initial metadata record."""
         video = self.video_metadata
+        model = self.config.model
+        video_path = Path(video.path)
+        try:
+            video_sha256 = _file_sha256(video_path)
+        except OSError:
+            video_sha256 = ""
+
+        prompt_builder = self.prompt_builder or PromptBuilder()
+        system_prompt_sha256 = _prompt_sha256(prompt_builder.system_prompt)
+        user_prompt_sha256 = _prompt_sha256(prompt_builder.user_prompt_template)
+
         return {
             "run_id": self.run_id,
             "experiment_name": self.config.experiment.name,
             "experiment_seed": self.config.experiment.seed,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "start_time": self._start_time.isoformat() if self._start_time else None,
+            "end_time": None,
             "video_path": video.path,
+            "video_sha256": video_sha256,
             "video_hash": _video_hash(video),
             "video_duration_seconds": video.duration_seconds,
             "video_fps": video.fps,
             "video_frame_count": video.frame_count,
             "video_width": video.width,
             "video_height": video.height,
-            "model_provider": self.config.model.provider,
-            "model_name": self.config.model.name,
+            "model_provider": model.provider,
+            "model_name": model.name,
+            "resolved_model": model.name,
+            "model_source": model.source,
+            "config_sha256": _config_sha256(self.config),
+            "system_prompt_sha256": system_prompt_sha256,
+            "user_prompt_sha256": user_prompt_sha256,
             "python_version": sys.version.split()[0],
             "package_versions": {
                 "qwen_stream_video": _package_version("qwen-stream-video"),
@@ -251,6 +304,9 @@ class RunStorage:
             "window_count": 0,
             "observation_count": 0,
             "error_count": 0,
+            "processed_windows": 0,
+            "successful_windows": 0,
+            "failed_windows": 0,
         }
         with self._metadata_path.open("w", encoding="utf-8") as handle:
             json.dump(metadata, handle, ensure_ascii=False, indent=2)
@@ -262,6 +318,7 @@ class RunStorage:
                 metadata = json.load(handle)
         else:
             metadata = self._build_initial_metadata()
+        metadata["end_time"] = datetime.now(tz=timezone.utc).isoformat()
         metadata["final_stats"] = stats
         with self._metadata_path.open("w", encoding="utf-8") as handle:
             json.dump(metadata, handle, ensure_ascii=False, indent=2)
@@ -285,7 +342,7 @@ class RunStorage:
         window_dir = self._frame_dir / f"window_{window.run_index:04d}_{window.global_index:04d}"
         window_dir.mkdir(exist_ok=True)
         for frame in sampled_frames:
-            filename = f"frame_{frame.frame_index:03d}_{frame.timestamp:.3f}.jpg"
+            filename = f"frame_{frame.sample_index:03d}_{frame.timestamp_seconds:.3f}.jpg"
             path = window_dir / filename
             cv2.imwrite(str(path), frame.image)
 
@@ -301,26 +358,25 @@ class RunStorage:
         raw_result: RawInferenceResult,
         raw_response_path: str | None,
     ) -> None:
-        """Append a metrics record to ``metrics.jsonl``."""
+        """Append a metrics record to ``api_metrics.jsonl``."""
         record = {
             "window_run_index": window.run_index,
             "window_global_index": window.global_index,
             "window_start_seconds": window.start_seconds,
             "window_end_seconds": window.end_seconds,
-            "model": raw_result.model,
+            "resolved_model": raw_result.resolved_model,
             "latency_seconds": raw_result.latency_seconds,
             "request_id": raw_result.request_id,
-            "prompt_tokens": raw_result.prompt_tokens,
-            "completion_tokens": raw_result.completion_tokens,
-            "total_tokens": raw_result.total_tokens,
-            "attempts": raw_result.attempts,
+            "input_tokens": raw_result.input_tokens,
+            "output_tokens": raw_result.output_tokens,
+            "attempt_count": raw_result.attempt_count,
             "raw_response_path": raw_response_path,
         }
         self._metrics_file.write(json.dumps(record, ensure_ascii=False) + "\n")
         self._metrics_file.flush()
 
-    def _write_observation(self, observation: WindowObservation) -> None:
-        """Append a validated observation to ``observations.jsonl``."""
+    def _write_observation(self, observation: ObservationBatch) -> None:
+        """Append a validated observation batch to ``observations.jsonl``."""
         self._observations_file.write(observation.model_dump_json() + "\n")
         self._observations_file.flush()
         self._observation_count += 1

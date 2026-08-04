@@ -79,6 +79,7 @@ class ModelConfig(BaseModel):
     max_tokens: int = Field(default=1200, ge=1)
     timeout_seconds: float = Field(default=120.0, gt=0)
     network_retries: int = Field(default=2, ge=0)
+    source: str = Field(default="default", min_length=1)
 
 
 class ObservationConfig(BaseModel):
@@ -190,6 +191,7 @@ def load_config(
     """
     # Start from code defaults so every key has a value.
     merged = AppConfig().model_dump()
+    model_source = "default"
 
     if config_path is not None:
         path = Path(config_path)
@@ -207,14 +209,23 @@ def load_config(
             if not isinstance(yaml_data, dict):
                 raise ConfigurationError(f"Configuration file {path} must contain a mapping")
             merged = _deep_update(merged, yaml_data)
+            if isinstance(yaml_data.get("model"), dict):
+                model_source = "yaml"
 
     if env is None:
         env = os.environ
-    merged = _deep_update(merged, _apply_env_overrides(env))
+    env_overrides = _apply_env_overrides(env)
+    if env_overrides.get("model"):
+        model_source = "environment"
+    merged = _deep_update(merged, env_overrides)
 
     if cli_overrides:
         merged = _deep_update(merged, {})
         _apply_dotted_overrides(merged, cli_overrides)
+        if any(key.startswith("model.") for key in cli_overrides):
+            model_source = "cli"
+
+    merged.setdefault("model", {})["source"] = model_source
 
     try:
         return AppConfig.model_validate(merged)
