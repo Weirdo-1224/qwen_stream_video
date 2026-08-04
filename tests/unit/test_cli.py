@@ -126,6 +126,32 @@ def test_dry_run_creates_output_without_api_key(
     assert len(windows) == 2
 
 
+def test_dry_run_with_save_frames_persists_sampled_frames(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    config_path = _write_config(tmp_path)
+    video_path = _make_test_video(tmp_path / "video.mp4", duration=5.0)
+    exit_code = main(
+        [
+            "--config",
+            str(config_path),
+            "--video",
+            str(video_path),
+            "--dry-run",
+            "--save-frames",
+            "--max-windows",
+            "1",
+        ]
+    )
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    output_dir = _extract_output_dir(captured.out)
+    frame_dirs = [p for p in (output_dir / "sampled_frames").iterdir() if p.is_dir()]
+    assert len(frame_dirs) == 1
+    assert len(list(frame_dirs[0].glob("*.jpg"))) > 0
+
+
 def test_normal_run_requires_api_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

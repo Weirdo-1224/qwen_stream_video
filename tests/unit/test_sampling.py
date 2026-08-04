@@ -68,7 +68,7 @@ def test_sample_window_frame_count(tmp_path: Path) -> None:
         assert isinstance(frame, SampledFrame)
         assert frame.global_index == window.global_index
         assert frame.run_index == window.run_index
-        assert frame.frame_index == i
+        assert frame.sample_index == i
 
 
 def test_sample_window_respects_boundaries(tmp_path: Path) -> None:
@@ -86,10 +86,10 @@ def test_sample_window_respects_boundaries(tmp_path: Path) -> None:
     # 6s * 2 fps = 12, clamped to 12
     assert len(frames) == 12
     for frame in frames:
-        assert window.start_seconds <= frame.timestamp < window.end_seconds
+        assert window.start_seconds <= frame.timestamp_seconds < window.end_seconds
 
     # No frame should sit exactly on the right boundary.
-    assert all(frame.timestamp < window.end_seconds for frame in frames)
+    assert all(frame.timestamp_seconds < window.end_seconds for frame in frames)
 
 
 def test_sample_window_max_frames_clamped(tmp_path: Path) -> None:
@@ -150,13 +150,14 @@ def test_sampled_frame_hides_image_on_serialization() -> None:
     frame = SampledFrame(
         run_index=0,
         global_index=0,
-        timestamp=0.0,
+        sample_index=0,
         frame_index=0,
+        timestamp_seconds=0.0,
         image=image,
     )
     data = frame.model_dump()
     assert "image" not in data
-    assert data["timestamp"] == 0.0
+    assert data["timestamp_seconds"] == 0.0
 
 
 def test_encode_small_image_not_upscaled() -> None:

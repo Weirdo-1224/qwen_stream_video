@@ -6,198 +6,167 @@ import pytest
 from pydantic import ValidationError
 
 from qwen_stream_video.domain import (
-    Action,
-    ActionPhase,
-    Attribute,
-    Entity,
+    ActionObservation,
+    ActionPhaseObservation,
+    AttributeObservation,
+    EntityObservation,
     EntityType,
     ObservationBatch,
     SceneObservation,
-    Uncertainty,
-    Viewpoint,
-    Visibility,
+    UncertaintyObservation,
+    ViewType,
+    VisibilityQuality,
     WindowObservation,
 )
 
 
 def _valid_window_observation() -> WindowObservation:
     return WindowObservation(
-        window_run_index=0,
-        window_global_index=1,
-        window_start_seconds=0.0,
-        window_end_seconds=3.0,
-        scene=SceneObservation(
-            description="A technician operates a circuit breaker.",
-            setting="indoor substation",
-            lighting="well_lit",
-            viewpoint=Viewpoint.CLOSE_UP,
-        ),
-        entities=[
-            Entity(
-                local_id="E1",
-                entity_type=EntityType.PERSON,
-                label="technician",
-                candidate_global_id="G1",
-                viewpoint=Viewpoint.FRONT,
-                visibility=Visibility.FULLY_VISIBLE,
-                bounding_box=[100.0, 200.0, 300.0, 400.0],
-                attributes=[
-                    Attribute(name="role", value="operator", confidence=0.9),
-                ],
-                confidence=0.95,
-            ),
-            Entity(
-                local_id="E2",
-                entity_type=EntityType.EQUIPMENT,
-                label="circuit breaker",
-                confidence=0.88,
-            ),
-        ],
-        actions=[
-            Action(
-                local_id="A1",
-                actor_id="E1",
-                action_type="operate",
-                phase=ActionPhase.CONTINUE,
-                target_id="E2",
-                start_time_seconds=0.5,
-                end_time_seconds=2.5,
-                evidence_frame_sample_indices=[0, 1, 2],
-                attributes=[
-                    Attribute(name="tool", value="wrench"),
-                ],
-                confidence=0.85,
-            ),
-        ],
-        uncertainties=[
-            Uncertainty(
-                category="occlusion",
-                description="The lower half of the breaker is occluded.",
-                severity="medium",
-                confidence=0.7,
-            ),
-        ],
-        summary="Technician continues to operate the circuit breaker.",
+        global_index=1,
+        start_seconds=0.0,
+        end_seconds=3.0,
     )
 
 
-def test_valid_window_observation() -> None:
-    obs = _valid_window_observation()
-    assert obs.window_run_index == 0
-    assert obs.entities[0].local_id == "E1"
-    assert obs.actions[0].evidence_frame_sample_indices == [0, 1, 2]
-    assert len(obs.uncertainties) == 1
+def _valid_entity() -> EntityObservation:
+    return EntityObservation(
+        local_id="E1",
+        entity_type=EntityType.PERSON,
+        name="operator",
+        description="A technician.",
+        appearance={"role": "operator"},
+        spatial_region="center",
+        candidate_global_id="person_1",
+        confidence=0.95,
+        evidence_frames=[0, 1],
+    )
 
 
-def test_invalid_confidence_rejected() -> None:
+def _valid_action() -> ActionObservation:
+    return ActionObservation(
+        local_id="A1",
+        actor_local_id="E1",
+        action_type="touch",
+        target_local_id="E2",
+        tool_local_id=None,
+        phase_observation=ActionPhaseObservation.ONGOING,
+        description="Operator touches the breaker.",
+        confidence=0.85,
+        evidence_frames=[1, 2],
+    )
+
+
+def _valid_batch() -> ObservationBatch:
+    return ObservationBatch(
+        schema_version="1.0",
+        window=_valid_window_observation(),
+        summary="Operator touches the breaker.",
+        scene=SceneObservation(
+            camera_change=False,
+            view_type=ViewType.MEDIUM,
+            visibility=VisibilityQuality.CLEAR,
+            description="Indoor substation scene.",
+        ),
+        entities=[
+            _valid_entity(),
+            EntityObservation(
+                local_id="E2",
+                entity_type=EntityType.DEVICE,
+                name="breaker",
+                confidence=0.88,
+                evidence_frames=[2],
+            ),
+        ],
+        actions=[_valid_action()],
+        attribute_observations=[
+            AttributeObservation(
+                entity_local_id="E2",
+                attribute="state",
+                value="closed",
+                confidence=0.8,
+                evidence_frames=[2],
+            )
+        ],
+        uncertainties=[
+            UncertaintyObservation(
+                description="Unable to confirm the breaker is fully closed.",
+                related_local_ids=["E2"],
+                evidence_frames=[],
+            )
+        ],
+    )
+
+
+def test_valid_observation_batch() -> None:
+    batch = _valid_batch()
+    assert batch.schema_version == "1.0"
+    assert batch.window.global_index == 1
+    assert batch.entities[0].local_id == "E1"
+    assert batch.actions[0].evidence_frames == [1, 2]
+    assert len(batch.attribute_observations) == 1
+    assert len(batch.uncertainties) == 1
+
+
+def test_confidence_above_one_fails() -> None:
     with pytest.raises(ValidationError):
-        Entity(
+        EntityObservation(
             local_id="E1",
             entity_type=EntityType.PERSON,
-            label="technician",
+            name="operator",
             confidence=1.1,
         )
 
 
-def test_negative_confidence_rejected() -> None:
+def test_confidence_below_zero_fails() -> None:
     with pytest.raises(ValidationError):
-        Action(
+        ActionObservation(
             local_id="A1",
-            actor_id="E1",
-            action_type="operate",
+            actor_local_id="E1",
+            action_type="touch",
             confidence=-0.01,
         )
 
 
-def test_window_end_must_be_after_start() -> None:
+def test_invalid_enum_fails() -> None:
     with pytest.raises(ValidationError):
-        WindowObservation(
-            window_run_index=0,
-            window_global_index=0,
-            window_start_seconds=5.0,
-            window_end_seconds=5.0,
-            scene=SceneObservation(description="test"),
-        )
-
-
-def test_action_end_must_be_after_start() -> None:
-    with pytest.raises(ValidationError):
-        Action(
-            local_id="A1",
-            actor_id="E1",
-            action_type="operate",
-            start_time_seconds=2.0,
-            end_time_seconds=1.0,
-            confidence=0.8,
-        )
-
-
-def test_invalid_enum_value_rejected() -> None:
-    with pytest.raises(ValidationError):
-        Entity(
+        EntityObservation(
             local_id="E1",
             entity_type="robot",  # type: ignore[arg-type]
-            label="technician",
+            name="operator",
             confidence=0.9,
         )
 
 
-def test_bounding_box_must_have_four_values() -> None:
-    with pytest.raises(ValidationError):
-        Entity(
-            local_id="E1",
-            entity_type=EntityType.PERSON,
-            label="technician",
-            bounding_box=[1.0, 2.0],
-            confidence=0.9,
-        )
+def test_mutable_defaults_are_isolated() -> None:
+    batch1 = ObservationBatch(
+        schema_version="1.0",
+        window=_valid_window_observation(),
+    )
+    batch2 = ObservationBatch(
+        schema_version="1.0",
+        window=_valid_window_observation(),
+    )
+    batch1.entities.append(_valid_entity())
+    assert batch2.entities == []
+    assert batch1.scene.description == ""
 
 
 def test_default_factories_create_empty_collections() -> None:
-    obs = WindowObservation(
-        window_run_index=0,
-        window_global_index=0,
-        window_start_seconds=0.0,
-        window_end_seconds=1.0,
-        scene=SceneObservation(description="empty window"),
+    batch = ObservationBatch(
+        schema_version="1.0",
+        window=_valid_window_observation(),
     )
-    assert obs.entities == []
-    assert obs.actions == []
-    assert obs.uncertainties == []
-
-    # Ensure independent defaults across instances.
-    obs2 = WindowObservation(
-        window_run_index=1,
-        window_global_index=1,
-        window_start_seconds=1.0,
-        window_end_seconds=2.0,
-        scene=SceneObservation(description="second window"),
-    )
-    obs.entities.append(
-        Entity(
-            local_id="E1",
-            entity_type=EntityType.OTHER,
-            label="x",
-            confidence=0.5,
-        )
-    )
-    assert obs2.entities == []
+    assert batch.entities == []
+    assert batch.actions == []
+    assert batch.attribute_observations == []
+    assert batch.uncertainties == []
+    assert batch.scene.description == ""
 
 
-def test_observation_batch_accepts_multiple_windows() -> None:
-    obs1 = _valid_window_observation()
-    obs2 = obs1.model_copy(update={"window_run_index": 1, "window_global_index": 2})
-    batch = ObservationBatch(observations=[obs1, obs2])
-    assert len(batch.observations) == 2
-    assert batch.schema_version == "1.0"
-
-
-def test_missing_required_scene_description_rejected() -> None:
+def test_batch_does_not_accept_observations_list() -> None:
     with pytest.raises(ValidationError):
-        WindowObservation(
-            window_run_index=0,
-            window_global_index=0,
-            window_start_seconds=0.0,
-            window_end_seconds=1.0,
-            scene=SceneObservation(),  # type: ignore[call-arg]
+        ObservationBatch(
+            schema_version="1.0",
+            window=_valid_window_observation(),
+            observations=[{}],  # type: ignore[call-arg]
         )

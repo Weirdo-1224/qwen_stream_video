@@ -36,6 +36,7 @@ def test_default_config_is_valid() -> None:
     assert config.sampling.jpeg_quality == 80
     assert config.model.provider == "dashscope"
     assert config.model.name == "qwen3-vl-plus"
+    assert config.model.source == "default"
     assert config.observation.schema_version == "1.0"
     assert config.runtime.max_windows is None
     assert config.storage.output_root == "outputs"
@@ -93,6 +94,7 @@ storage:
         max_tokens=800,
         timeout_seconds=60,
         network_retries=1,
+        source="yaml",
     )
     assert config.observation == ObservationConfig(
         schema_version="1.0",
@@ -157,6 +159,7 @@ def test_environment_model_override(tmp_path: Path) -> None:
     assert config.model.name == "env-model"
     assert config.model.api_key == "sk-test"
     assert config.model.base_url == "https://test.example.com/v1"
+    assert config.model.source == "environment"
 
 
 def test_cli_override_has_highest_priority(tmp_path: Path) -> None:
@@ -168,6 +171,7 @@ def test_cli_override_has_highest_priority(tmp_path: Path) -> None:
     assert config.model.name == "cli-model"
     assert config.model.temperature == 0.5
     assert config.video.window_seconds == 10.0
+    assert config.model.source == "cli"
 
 
 def test_missing_config_file() -> None:

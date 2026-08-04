@@ -33,6 +33,18 @@ def mock_openai():
         yield patched
 
 
+VALID_FAKE_RESPONSE = """{
+  "schema_version": "1.0",
+  "window": {"global_index": 0, "start_seconds": 0.0, "end_seconds": 1.0},
+  "summary": "Test summary.",
+  "scene": {"camera_change": false, "view_type": "unknown", "visibility": "unknown", "description": "test"},
+  "entities": [],
+  "actions": [],
+  "attribute_observations": [],
+  "uncertainties": []
+}"""
+
+
 def _make_success_response(raw_text: str) -> MagicMock:
     response = MagicMock()
     response.choices = [MagicMock()]
@@ -50,24 +62,22 @@ def _make_request() -> MagicMock:
 
 def test_fake_qwen_client_returns_canned_response_and_records_call() -> None:
     client = FakeQwenClient(
-        response_text='{"answer": 42}',
+        response_text=VALID_FAKE_RESPONSE,
         latency_seconds=0.1,
         request_id="fake-req",
-        model="fake-model",
-        prompt_tokens=3,
-        completion_tokens=2,
-        total_tokens=5,
+        resolved_model="fake-model",
+        input_tokens=3,
+        output_tokens=2,
     )
     result = client.infer("sys", "user", ["data:image/jpeg;base64,abc"])
 
-    assert result.raw_text == '{"answer": 42}'
-    assert result.model == "fake-model"
+    assert result.raw_text == VALID_FAKE_RESPONSE
+    assert result.resolved_model == "fake-model"
     assert result.latency_seconds == 0.1
     assert result.request_id == "fake-req"
-    assert result.prompt_tokens == 3
-    assert result.completion_tokens == 2
-    assert result.total_tokens == 5
-    assert result.attempts == 1
+    assert result.input_tokens == 3
+    assert result.output_tokens == 2
+    assert result.attempt_count == 1
     assert len(client.calls) == 1
     assert client.calls[0]["system_prompt"] == "sys"
     assert client.calls[0]["user_prompt"] == "user"
@@ -83,12 +93,11 @@ def test_qwen_client_success(mock_openai: MagicMock, model_config: ModelConfig) 
 
     assert isinstance(result, RawInferenceResult)
     assert result.raw_text == '{"ok": true}'
-    assert result.model == "qwen3-vl-plus"
+    assert result.resolved_model == "qwen3-vl-plus"
     assert result.request_id == "req-123"
-    assert result.prompt_tokens == 10
-    assert result.completion_tokens == 5
-    assert result.total_tokens == 15
-    assert result.attempts == 1
+    assert result.input_tokens == 10
+    assert result.output_tokens == 5
+    assert result.attempt_count == 1
     assert result.latency_seconds >= 0.0
 
     call_args = mock_client.chat.completions.create.call_args
@@ -120,7 +129,7 @@ def test_qwen_client_retries_timeout_then_succeeds(
     result = client.infer("sys", "user", [])
 
     assert result.raw_text == '{"retry": "ok"}'
-    assert result.attempts == 2
+    assert result.attempt_count == 2
     assert mock_client.chat.completions.create.call_count == 2
 
 

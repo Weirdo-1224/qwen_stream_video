@@ -8,12 +8,15 @@ import numpy as np
 import pytest
 
 from qwen_stream_video.domain import (
-    Action,
-    ActionPhase,
-    Entity,
+    ActionObservation,
+    ActionPhaseObservation,
+    AttributeObservation,
+    EntityObservation,
     EntityType,
     ObservationBatch,
     SceneObservation,
+    ViewType,
+    VisibilityQuality,
     WindowObservation,
 )
 from qwen_stream_video.exceptions import (
@@ -42,8 +45,9 @@ def sampled_frames(video_window: VideoWindow) -> list[SampledFrame]:
         SampledFrame(
             run_index=video_window.run_index,
             global_index=video_window.global_index,
-            timestamp=9.0 + i,
+            sample_index=i,
             frame_index=i,
+            timestamp_seconds=9.0 + i,
             image=np.zeros((10, 10, 3), dtype="uint8"),
         )
         for i in range(4)
@@ -62,42 +66,58 @@ def response_parser() -> ResponseParser:
 
 @pytest.fixture
 def valid_batch(video_window: VideoWindow) -> ObservationBatch:
-    obs = WindowObservation(
+    return ObservationBatch(
         schema_version="1.0",
-        window_run_index=video_window.run_index,
-        window_global_index=video_window.global_index,
-        window_start_seconds=video_window.start_seconds,
-        window_end_seconds=video_window.end_seconds,
-        scene=SceneObservation(description="A technician operates a breaker."),
+        window=WindowObservation(
+            global_index=video_window.global_index,
+            start_seconds=video_window.start_seconds,
+            end_seconds=video_window.end_seconds,
+        ),
+        summary="A technician touches the breaker.",
+        scene=SceneObservation(
+            camera_change=False,
+            view_type=ViewType.MEDIUM,
+            visibility=VisibilityQuality.CLEAR,
+            description="Indoor substation.",
+        ),
         entities=[
-            Entity(
+            EntityObservation(
                 local_id="E1",
                 entity_type=EntityType.PERSON,
-                label="technician",
+                name="technician",
                 confidence=0.9,
+                evidence_frames=[0],
             ),
-            Entity(
+            EntityObservation(
                 local_id="E2",
-                entity_type=EntityType.EQUIPMENT,
-                label="breaker",
+                entity_type=EntityType.DEVICE,
+                name="breaker",
                 confidence=0.8,
+                evidence_frames=[1],
             ),
         ],
         actions=[
-            Action(
+            ActionObservation(
                 local_id="A1",
-                actor_id="E1",
+                actor_local_id="E1",
                 action_type="touch",
-                phase=ActionPhase.CONTINUE,
-                target_id="E2",
-                evidence_frame_sample_indices=[0, 1],
+                target_local_id="E2",
+                phase_observation=ActionPhaseObservation.ONGOING,
+                description="Technician touches the breaker.",
                 confidence=0.85,
+                evidence_frames=[0, 1],
             ),
         ],
-        uncertainties=[],
-        summary="Technician touches the breaker.",
+        attribute_observations=[
+            AttributeObservation(
+                entity_local_id="E2",
+                attribute="state",
+                value="closed",
+                confidence=0.8,
+                evidence_frames=[1],
+            )
+        ],
     )
-    return ObservationBatch(observations=[obs])
 
 
 def test_build_user_prompt_contains_window_and_frame_info(
@@ -114,6 +134,13 @@ def test_build_user_prompt_contains_window_and_frame_info(
             "task_background": "training",
         },
         previous_summary="Previous summary.",
+        previous_entities=[
+            {
+                "candidate_global_id": "person_1",
+                "entity_type": "person",
+                "description": "A technician.",
+            }
+        ],
     )
     assert "test.mp4" in prompt
     assert "breaker" in prompt
@@ -123,6 +150,8 @@ def test_build_user_prompt_contains_window_and_frame_info(
     assert "4" in prompt
     assert "9.000, 10.000, 11.000, 12.000" in prompt
     assert "Previous summary." in prompt
+    assert "person_1" in prompt
+    assert "A technician." in prompt
 
 
 def test_build_user_prompt_without_previous_summary(
@@ -132,6 +161,7 @@ def test_build_user_prompt_without_previous_summary(
 ) -> None:
     prompt = prompt_builder.build_user_prompt(video_window, sampled_frames)
     assert "无（当前窗口是首个窗口）" in prompt
+    assert "无（当前窗口是首个窗口或上一窗口无候选实体）" in prompt
 
 
 def test_parse_valid_json_returns_batch_and_warnings(
@@ -142,11 +172,10 @@ def test_parse_valid_json_returns_batch_and_warnings(
 ) -> None:
     raw = valid_batch.model_dump_json()
     batch, warnings = response_parser.parse(raw, sampled_frames, window=video_window)
-    assert len(batch.observations) == 1
-    assert batch.observations[0].window_global_index == video_window.global_index
-    assert batch.observations[0].window_run_index == video_window.run_index
-    assert batch.observations[0].window_start_seconds == video_window.start_seconds
-    assert batch.observations[0].window_end_seconds == video_window.end_seconds
+    assert batch.window.global_index == video_window.global_index
+    assert batch.window.start_seconds == video_window.start_seconds
+    assert batch.window.end_seconds == video_window.end_seconds
+    assert batch.summary == "A technician touches the breaker."
     assert warnings == []
 
 
@@ -157,7 +186,7 @@ def test_parse_json_in_markdown_code_block(
 ) -> None:
     raw = f"```json\n{valid_batch.model_dump_json()}\n```"
     batch, warnings = response_parser.parse(raw, sampled_frames)
-    assert len(batch.observations) == 1
+    assert batch.summary == "A technician touches the breaker."
     assert warnings == []
 
 
@@ -168,7 +197,7 @@ def test_parse_json_with_surrounding_text(
 ) -> None:
     raw = f"Here is the result:\n{valid_batch.model_dump_json()}\nEnd of output."
     batch, warnings = response_parser.parse(raw, sampled_frames)
-    assert len(batch.observations) == 1
+    assert batch.summary == "A technician touches the breaker."
     assert warnings == []
 
 
@@ -194,16 +223,16 @@ def test_parse_invalid_schema_raises(
     response_parser: ResponseParser,
     sampled_frames: list[SampledFrame],
 ) -> None:
-    raw = json.dumps({"schema_version": "1.0", "observations": [{"invalid": "data"}]})
+    raw = json.dumps({"schema_version": "1.0", "window": {"invalid": "data"}})
     with pytest.raises(ModelOutputSchemaError):
         response_parser.parse(raw, sampled_frames)
 
 
-def test_parse_invalid_top_level_raises(
+def test_parse_invalid_top_level_list_raises(
     response_parser: ResponseParser,
     sampled_frames: list[SampledFrame],
 ) -> None:
-    raw = json.dumps({"schema_version": "1.0", "observations": "not-a-list"})
+    raw = json.dumps([{"schema_version": "1.0"}])
     with pytest.raises(ModelOutputSchemaError):
         response_parser.parse(raw, sampled_frames)
 
@@ -212,29 +241,27 @@ def test_parse_semantic_error_duplicate_entity_id_raises(
     response_parser: ResponseParser,
     sampled_frames: list[SampledFrame],
 ) -> None:
-    obs = WindowObservation(
+    batch = ObservationBatch(
         schema_version="1.0",
-        window_run_index=0,
-        window_global_index=0,
-        window_start_seconds=0.0,
-        window_end_seconds=1.0,
+        window=WindowObservation(global_index=0, start_seconds=0.0, end_seconds=1.0),
+        summary="test",
         scene=SceneObservation(description="test"),
         entities=[
-            Entity(
+            EntityObservation(
                 local_id="E1",
                 entity_type=EntityType.PERSON,
-                label="person1",
+                name="person1",
                 confidence=0.9,
             ),
-            Entity(
+            EntityObservation(
                 local_id="E1",
-                entity_type=EntityType.EQUIPMENT,
-                label="device1",
+                entity_type=EntityType.DEVICE,
+                name="device1",
                 confidence=0.8,
             ),
         ],
     )
-    raw = ObservationBatch(observations=[obs]).model_dump_json()
+    raw = batch.model_dump_json()
     with pytest.raises(ModelOutputSemanticError, match="Duplicate entity local_id"):
         response_parser.parse(raw, sampled_frames)
 
@@ -243,33 +270,40 @@ def test_parse_returns_warning_for_unknown_action(
     response_parser: ResponseParser,
     sampled_frames: list[SampledFrame],
 ) -> None:
-    obs = WindowObservation(
+    batch = ObservationBatch(
         schema_version="1.0",
-        window_run_index=0,
-        window_global_index=0,
-        window_start_seconds=0.0,
-        window_end_seconds=1.0,
+        window=WindowObservation(global_index=0, start_seconds=0.0, end_seconds=1.0),
+        summary="test",
         scene=SceneObservation(description="test"),
         entities=[
-            Entity(
+            EntityObservation(
                 local_id="E1",
                 entity_type=EntityType.PERSON,
-                label="person",
+                name="person",
                 confidence=0.9,
             ),
         ],
         actions=[
-            Action(
+            ActionObservation(
                 local_id="A1",
-                actor_id="E1",
+                actor_local_id="E1",
                 action_type="dance",
-                phase=ActionPhase.START,
+                phase_observation=ActionPhaseObservation.STARTING,
                 confidence=0.8,
             ),
         ],
     )
-    raw = ObservationBatch(observations=[obs]).model_dump_json()
+    raw = batch.model_dump_json()
     batch, warnings = response_parser.parse(raw, sampled_frames)
     assert len(warnings) == 1
     assert "mapped to 'unknown'" in warnings[0]
-    assert batch.observations[0].actions[0].action_type == "unknown"
+    assert batch.actions[0].action_type == "unknown"
+
+
+def test_parse_forbidden_eval_not_used(
+    response_parser: ResponseParser,
+    sampled_frames: list[SampledFrame],
+) -> None:
+    raw = "__import__('os').system('echo pwned')"
+    with pytest.raises(ModelOutputParseError):
+        response_parser.parse(raw, sampled_frames)

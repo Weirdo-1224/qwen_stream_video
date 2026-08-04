@@ -5,12 +5,15 @@ from __future__ import annotations
 import pytest
 
 from qwen_stream_video.domain import (
-    Action,
-    ActionPhase,
-    Entity,
+    ActionObservation,
+    ActionPhaseObservation,
+    AttributeObservation,
+    EntityObservation,
     EntityType,
     ObservationBatch,
     SceneObservation,
+    ViewType,
+    VisibilityQuality,
     WindowObservation,
 )
 from qwen_stream_video.exceptions import ModelOutputSemanticError
@@ -39,8 +42,9 @@ def sampled_frames() -> list[SampledFrame]:
         SampledFrame(
             run_index=1,
             global_index=5,
-            timestamp=10.0 + i,
+            sample_index=i,
             frame_index=i,
+            timestamp_seconds=10.0 + i,
             image=__import__("numpy").zeros((10, 10, 3), dtype="uint8"),
         )
         for i in range(4)
@@ -48,36 +52,47 @@ def sampled_frames() -> list[SampledFrame]:
 
 
 @pytest.fixture
-def valid_observation() -> WindowObservation:
-    return WindowObservation(
-        window_run_index=0,
-        window_global_index=0,
-        window_start_seconds=0.0,
-        window_end_seconds=3.0,
-        scene=SceneObservation(description="test"),
+def valid_batch() -> ObservationBatch:
+    return ObservationBatch(
+        schema_version="1.0",
+        window=WindowObservation(
+            global_index=0,
+            start_seconds=0.0,
+            end_seconds=3.0,
+        ),
+        summary="test",
+        scene=SceneObservation(
+            camera_change=False,
+            view_type=ViewType.UNKNOWN,
+            visibility=VisibilityQuality.UNKNOWN,
+            description="test scene",
+        ),
         entities=[
-            Entity(
+            EntityObservation(
                 local_id="E1",
                 entity_type=EntityType.PERSON,
-                label="technician",
+                name="technician",
                 confidence=0.9,
+                evidence_frames=[0],
             ),
-            Entity(
+            EntityObservation(
                 local_id="E2",
-                entity_type=EntityType.EQUIPMENT,
-                label="breaker",
+                entity_type=EntityType.DEVICE,
+                name="breaker",
                 confidence=0.8,
+                evidence_frames=[1],
             ),
         ],
         actions=[
-            Action(
+            ActionObservation(
                 local_id="A1",
-                actor_id="E1",
+                actor_local_id="E1",
                 action_type="touch",
-                phase=ActionPhase.CONTINUE,
-                target_id="E2",
-                evidence_frame_sample_indices=[0, 1],
+                target_local_id="E2",
+                phase_observation=ActionPhaseObservation.ONGOING,
+                description="test",
                 confidence=0.85,
+                evidence_frames=[0, 1],
             ),
         ],
     )
@@ -85,132 +100,157 @@ def valid_observation() -> WindowObservation:
 
 def test_valid_batch_passes(
     validator: ObservationSemanticValidator,
-    valid_observation: WindowObservation,
+    valid_batch: ObservationBatch,
     sampled_frames: list[SampledFrame],
 ) -> None:
-    batch = ObservationBatch(observations=[valid_observation])
-    warnings = validator.validate(batch, sampled_frames)
+    warnings = validator.validate(valid_batch, sampled_frames)
     assert warnings == []
 
 
 def test_window_fields_overwritten(
     validator: ObservationSemanticValidator,
-    valid_observation: WindowObservation,
+    valid_batch: ObservationBatch,
     sampled_frames: list[SampledFrame],
     video_window: VideoWindow,
 ) -> None:
-    batch = ObservationBatch(observations=[valid_observation])
-    validator.validate(batch, sampled_frames, window=video_window)
-    obs = batch.observations[0]
-    assert obs.window_global_index == 5
-    assert obs.window_run_index == 1
-    assert obs.window_start_seconds == 10.0
-    assert obs.window_end_seconds == 16.0
+    validator.validate(valid_batch, sampled_frames, window=video_window)
+    assert valid_batch.window.global_index == 5
+    assert valid_batch.window.start_seconds == 10.0
+    assert valid_batch.window.end_seconds == 16.0
 
 
-def test_duplicate_entity_id_raises(
+def test_duplicate_entity_local_id(
     validator: ObservationSemanticValidator,
-    valid_observation: WindowObservation,
+    valid_batch: ObservationBatch,
     sampled_frames: list[SampledFrame],
 ) -> None:
-    valid_observation.entities[1].local_id = "E1"
-    batch = ObservationBatch(observations=[valid_observation])
+    valid_batch.entities[1].local_id = "E1"
     with pytest.raises(ModelOutputSemanticError, match="Duplicate entity local_id"):
-        validator.validate(batch, sampled_frames)
+        validator.validate(valid_batch, sampled_frames)
 
 
-def test_duplicate_action_id_raises(
+def test_duplicate_action_local_id(
     validator: ObservationSemanticValidator,
-    valid_observation: WindowObservation,
+    valid_batch: ObservationBatch,
     sampled_frames: list[SampledFrame],
 ) -> None:
-    valid_observation.actions.append(
-        Action(
+    valid_batch.actions.append(
+        ActionObservation(
             local_id="A1",
-            actor_id="E1",
+            actor_local_id="E1",
             action_type="hold",
             confidence=0.6,
         )
     )
-    batch = ObservationBatch(observations=[valid_observation])
     with pytest.raises(ModelOutputSemanticError, match="Duplicate action local_id"):
-        validator.validate(batch, sampled_frames)
+        validator.validate(valid_batch, sampled_frames)
 
 
-def test_missing_actor_reference_raises(
+def test_missing_actor_reference(
     validator: ObservationSemanticValidator,
-    valid_observation: WindowObservation,
+    valid_batch: ObservationBatch,
     sampled_frames: list[SampledFrame],
 ) -> None:
-    valid_observation.actions[0].actor_id = "E99"
-    batch = ObservationBatch(observations=[valid_observation])
+    valid_batch.actions[0].actor_local_id = "E99"
     with pytest.raises(ModelOutputSemanticError, match="missing actor"):
-        validator.validate(batch, sampled_frames)
+        validator.validate(valid_batch, sampled_frames)
 
 
-def test_missing_target_reference_raises(
+def test_missing_target_reference(
     validator: ObservationSemanticValidator,
-    valid_observation: WindowObservation,
+    valid_batch: ObservationBatch,
     sampled_frames: list[SampledFrame],
 ) -> None:
-    valid_observation.actions[0].target_id = "E99"
-    batch = ObservationBatch(observations=[valid_observation])
+    valid_batch.actions[0].target_local_id = "E99"
     with pytest.raises(ModelOutputSemanticError, match="missing target"):
-        validator.validate(batch, sampled_frames)
+        validator.validate(valid_batch, sampled_frames)
 
 
-def test_out_of_range_evidence_frame_raises(
+def test_missing_tool_reference(
     validator: ObservationSemanticValidator,
-    valid_observation: WindowObservation,
+    valid_batch: ObservationBatch,
     sampled_frames: list[SampledFrame],
 ) -> None:
-    valid_observation.actions[0].evidence_frame_sample_indices = [0, 10]
-    batch = ObservationBatch(observations=[valid_observation])
-    with pytest.raises(ModelOutputSemanticError, match="out-of-range evidence frame"):
-        validator.validate(batch, sampled_frames)
+    valid_batch.actions[0].tool_local_id = "E99"
+    with pytest.raises(ModelOutputSemanticError, match="missing tool"):
+        validator.validate(valid_batch, sampled_frames)
 
 
-def test_negative_evidence_frame_raises(
+def test_missing_attribute_entity_reference(
     validator: ObservationSemanticValidator,
-    valid_observation: WindowObservation,
+    valid_batch: ObservationBatch,
     sampled_frames: list[SampledFrame],
 ) -> None:
-    valid_observation.actions[0].evidence_frame_sample_indices = [-1]
-    batch = ObservationBatch(observations=[valid_observation])
+    valid_batch.attribute_observations.append(
+        AttributeObservation(
+            entity_local_id="E99",
+            attribute="state",
+            value="open",
+            confidence=0.8,
+        )
+    )
+    with pytest.raises(ModelOutputSemanticError, match="missing entity"):
+        validator.validate(valid_batch, sampled_frames)
+
+
+def test_invalid_evidence_frame(
+    validator: ObservationSemanticValidator,
+    valid_batch: ObservationBatch,
+    sampled_frames: list[SampledFrame],
+) -> None:
+    valid_batch.actions[0].evidence_frames = [0, 10]
     with pytest.raises(ModelOutputSemanticError, match="out-of-range evidence frame"):
-        validator.validate(batch, sampled_frames)
+        validator.validate(valid_batch, sampled_frames)
+
+
+def test_negative_evidence_frame(
+    validator: ObservationSemanticValidator,
+    valid_batch: ObservationBatch,
+    sampled_frames: list[SampledFrame],
+) -> None:
+    valid_batch.entities[0].evidence_frames = [-1]
+    with pytest.raises(ModelOutputSemanticError, match="out-of-range evidence frame"):
+        validator.validate(valid_batch, sampled_frames)
 
 
 def test_evidence_frames_deduplicated_and_sorted(
     validator: ObservationSemanticValidator,
-    valid_observation: WindowObservation,
+    valid_batch: ObservationBatch,
     sampled_frames: list[SampledFrame],
 ) -> None:
-    valid_observation.actions[0].evidence_frame_sample_indices = [2, 1, 2, 0]
-    batch = ObservationBatch(observations=[valid_observation])
-    validator.validate(batch, sampled_frames)
-    assert batch.observations[0].actions[0].evidence_frame_sample_indices == [0, 1, 2]
+    valid_batch.actions[0].evidence_frames = [2, 1, 2, 0]
+    validator.validate(valid_batch, sampled_frames)
+    assert valid_batch.actions[0].evidence_frames == [0, 1, 2]
 
 
-def test_unknown_action_type_mapped_to_unknown_with_warning(
+def test_unknown_action_mapped_to_unknown_with_warning(
     validator: ObservationSemanticValidator,
-    valid_observation: WindowObservation,
+    valid_batch: ObservationBatch,
     sampled_frames: list[SampledFrame],
 ) -> None:
-    valid_observation.actions[0].action_type = "dance"
-    batch = ObservationBatch(observations=[valid_observation])
-    warnings = validator.validate(batch, sampled_frames)
+    valid_batch.actions[0].action_type = "dance"
+    warnings = validator.validate(valid_batch, sampled_frames)
     assert len(warnings) == 1
     assert "mapped to 'unknown'" in warnings[0]
-    assert batch.observations[0].actions[0].action_type == "unknown"
+    assert valid_batch.actions[0].action_type == "unknown"
 
 
 def test_target_none_is_allowed(
     validator: ObservationSemanticValidator,
-    valid_observation: WindowObservation,
+    valid_batch: ObservationBatch,
     sampled_frames: list[SampledFrame],
 ) -> None:
-    valid_observation.actions[0].target_id = None
-    batch = ObservationBatch(observations=[valid_observation])
-    warnings = validator.validate(batch, sampled_frames)
+    valid_batch.actions[0].target_local_id = None
+    warnings = validator.validate(valid_batch, sampled_frames)
     assert warnings == []
+
+
+def test_valid_references_pass(
+    validator: ObservationSemanticValidator,
+    valid_batch: ObservationBatch,
+    sampled_frames: list[SampledFrame],
+) -> None:
+    warnings = validator.validate(valid_batch, sampled_frames)
+    assert warnings == []
+    assert valid_batch.entities[0].evidence_frames == [0]
+    assert valid_batch.actions[0].evidence_frames == [0, 1]

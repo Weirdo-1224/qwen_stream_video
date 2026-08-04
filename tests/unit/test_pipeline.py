@@ -11,9 +11,7 @@ import numpy as np
 import pytest
 
 from qwen_stream_video.config import AppConfig
-from qwen_stream_video.inference import (
-    FakeQwenClient,
-)
+from qwen_stream_video.inference import FakeQwenClient
 from qwen_stream_video.pipeline import StreamingVideoPipeline
 
 
@@ -42,40 +40,45 @@ def app_config(tmp_path: Path) -> AppConfig:
 
 @pytest.fixture
 def valid_response_text() -> str:
-    """Return a minimal valid observation response for one window."""
+    """Return a minimal valid single-window observation response."""
     return json.dumps(
         {
             "schema_version": "1.0",
-            "observations": [
+            "window": {
+                "global_index": 0,
+                "start_seconds": 0.0,
+                "end_seconds": 1.0,
+            },
+            "summary": "Test summary.",
+            "scene": {
+                "camera_change": False,
+                "view_type": "unknown",
+                "visibility": "unknown",
+                "description": "A test scene.",
+            },
+            "entities": [
                 {
-                    "schema_version": "1.0",
-                    "window_run_index": 0,
-                    "window_global_index": 0,
-                    "window_start_seconds": 0.0,
-                    "window_end_seconds": 1.0,
-                    "scene": {"description": "A test scene.", "viewpoint": "front"},
-                    "entities": [
-                        {
-                            "local_id": "E1",
-                            "entity_type": "person",
-                            "label": "operator",
-                            "confidence": 0.9,
-                        }
-                    ],
-                    "actions": [
-                        {
-                            "local_id": "A1",
-                            "actor_id": "E1",
-                            "action_type": "observe",
-                            "phase": "continue",
-                            "evidence_frame_sample_indices": [0],
-                            "confidence": 0.8,
-                        }
-                    ],
-                    "uncertainties": [],
-                    "summary": "Test summary.",
+                    "local_id": "E1",
+                    "entity_type": "person",
+                    "name": "operator",
+                    "candidate_global_id": "person_1",
+                    "confidence": 0.9,
+                    "evidence_frames": [0],
                 }
             ],
+            "actions": [
+                {
+                    "local_id": "A1",
+                    "actor_local_id": "E1",
+                    "action_type": "observe",
+                    "phase_observation": "ongoing",
+                    "description": "Operator observes.",
+                    "confidence": 0.8,
+                    "evidence_frames": [0],
+                }
+            ],
+            "attribute_observations": [],
+            "uncertainties": [],
         }
     )
 
@@ -117,25 +120,17 @@ def test_dry_run_creates_storage_without_calling_client(
     app_config: AppConfig,
 ) -> None:
     video_path = _make_test_video(Path(app_config.storage.output_root) / "dry.mp4", duration=5.0)
-    calls: list[Any] = []
     fake_client = FakeQwenClient(response_text="{}")
-    original_infer = fake_client.infer
-
-    def tracking_infer(system: str, user: str, images: list[str]) -> Any:
-        calls.append((system, user, images))
-        return original_infer(system, user, images)
-
-    fake_client.infer = tracking_infer
 
     pipeline = StreamingVideoPipeline(app_config, video_path, client=fake_client)
     storage = pipeline.run(dry_run=True)
     assert storage is not None
     assert storage.run_dir.exists()
-    assert len(calls) == 0
+    assert len(fake_client.calls) == 0
     windows = _read_jsonl(storage.run_dir / "windows.jsonl")
     assert len(windows) > 0
     assert len(_read_jsonl(storage.run_dir / "observations.jsonl")) == 0
-    assert len(_read_jsonl(storage.run_dir / "metrics.jsonl")) == 0
+    assert len(_read_jsonl(storage.run_dir / "api_metrics.jsonl")) == 0
     assert len(_read_jsonl(storage.run_dir / "errors.jsonl")) == 0
 
 
@@ -151,9 +146,10 @@ def test_normal_run_with_fake_client_writes_observations(
 
     observations = _read_jsonl(storage.run_dir / "observations.jsonl")
     assert len(observations) > 0
-    assert observations[0]["window_global_index"] == 0
+    assert observations[0]["window"]["global_index"] == 0
+    assert observations[0]["summary"] == "Test summary."
 
-    metrics = _read_jsonl(storage.run_dir / "metrics.jsonl")
+    metrics = _read_jsonl(storage.run_dir / "api_metrics.jsonl")
     assert len(metrics) == len(observations)
 
     errors = _read_jsonl(storage.run_dir / "errors.jsonl")
@@ -190,7 +186,7 @@ def test_pipeline_continues_after_single_window_failure(
     assert errors[0]["error_type"] == "RuntimeError"
     assert "simulated inference failure" in errors[0]["error_message"]
 
-    metadata = json.loads((storage.run_dir / "metadata.json").read_text(encoding="utf-8"))
+    metadata = json.loads((storage.run_dir / "run_meta.json").read_text(encoding="utf-8"))
     assert metadata["final_stats"]["error_count"] > 0
 
 
@@ -218,6 +214,8 @@ def test_previous_summary_carried_between_windows(
     pipeline = StreamingVideoPipeline(app_config, video_path, client=fake_client)
     pipeline.run()
     assert pipeline._previous_summary == "Test summary."
+    assert len(pipeline._previous_entities) == 1
+    assert pipeline._previous_entities[0]["candidate_global_id"] == "person_1"
 
 
 def test_no_state_does_not_carry_summary(
@@ -229,6 +227,7 @@ def test_no_state_does_not_carry_summary(
     pipeline = StreamingVideoPipeline(app_config, video_path, client=fake_client)
     pipeline.run(carry_previous_state=False)
     assert pipeline._previous_summary is None
+    assert pipeline._previous_entities == []
 
 
 def test_missing_client_raises_on_normal_run(
