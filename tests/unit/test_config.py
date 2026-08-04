@@ -200,7 +200,23 @@ def test_config_summary_shows_unconfigured_key() -> None:
     assert "API Key: 未配置" in summary
 
 
+def test_video_metadata_populates_video_context(tmp_path: Path) -> None:
+    path = _write_yaml(
+        tmp_path,
+        """
+video_metadata:
+  video_name: demo
+  video_category: breaker
+  task_background: training
+""",
+    )
+    config = load_config(config_path=path)
+    assert config.video_context.video_name == "demo"
+    assert config.video_context.video_category == "breaker"
+    assert config.video_context.task_background == "training"
+
+
 def test_unknown_yaml_keys_are_ignored(tmp_path: Path) -> None:
-    path = _write_yaml(tmp_path, "video_metadata:\n  video_name: demo\n")
+    path = _write_yaml(tmp_path, "unknown_section:\n  value: demo\n")
     config = load_config(config_path=path)
     assert config.video.window_seconds == DEFAULTS.video.window_seconds

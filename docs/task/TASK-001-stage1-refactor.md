@@ -11,7 +11,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | TODO |
+| 状态 | DONE |
 | 前置任务 | 无 |
 | 目标 | 将单文件视频分析原型重构为可安装、可测试的 Python 工程，并将模型输出改为当前窗口的增量观察。 |
 | 参考 | `docs/stage/stage1.md` |
@@ -37,16 +37,16 @@
 
 ## 实施清单
 
-- [ ] 工程骨架：`pyproject.toml`、`src` 包、CLI、兼容 `run.py`；`python run.py --help` 与 `qwen-stream-video --help` 可用。
-- [ ] 配置系统：严格类型和边界校验；优先级为 CLI > 环境变量 > YAML > 默认值；日志不得泄露 API Key。
+- [x] 工程骨架：`pyproject.toml`、`src` 包、CLI、兼容 `run.py`；`python run.py --help` 与 `qwen-stream-video --help` 可用。
+- [x] 配置系统：严格类型和边界校验；优先级为 CLI > 环境变量 > YAML > 默认值；日志不得泄露 API Key。
 - [x] 视频模块：读取元数据，生成不越界的因果滑动窗口；保留 `global_index`，选择后重新计算 `run_index`。
 - [x] 实时模式：以首个已选窗口起点为时间原点，`calculate_realtime_target(1000, 480, 486) == 1006`。
-- [ ] 抽帧与编码：采样时间满足 `start <= timestamp < end`；帧数受 `min_frames`/`max_frames` 限制；不伪造重复图像。
-- [ ] 观察协议：实现 `ObservationBatch` 及其子模型；所有可变字段使用 `default_factory`。
-- [ ] 推理与校验：原始文本去代码块、提取 JSON、Pydantic 校验、语义校验；禁止 `eval()`；无效结果不得写入观察文件。
-- [ ] 存储与流水线：每窗口独立失败并继续；保存 `outputs/<run_id>/` 中的运行信息、原始响应、指标与错误。
-- [ ] CLI：支持 `--video`、`--config`、`--output-dir`、时间/窗口范围、`--realtime`、`--dry-run`、`--validate-only`、`--print-config` 等阶段文档要求的参数。
-- [ ] 测试与文档：Mock/Fake Qwen 客户端；补齐配置、窗口、Schema、语义校验单元测试及 README。
+- [x] 抽帧与编码：采样时间满足 `start <= timestamp < end`；帧数受 `min_frames`/`max_frames` 限制；不伪造重复图像。
+- [x] 观察协议：实现 `ObservationBatch` 及其子模型；所有可变字段使用 `default_factory`。
+- [x] 推理与校验：原始文本去代码块、提取 JSON、Pydantic 校验、语义校验；禁止 `eval()`；无效结果不得写入观察文件。
+- [x] 存储与流水线：每窗口独立失败并继续；保存 `outputs/<run_id>/` 中的运行信息、原始响应、指标与错误。
+- [x] CLI：支持 `--video`、`--config`、`--output-dir`、时间/窗口范围、`--realtime`、`--dry-run`、`--validate-only`、`--print-config` 等阶段文档要求的参数。
+- [x] 测试与文档：Mock/Fake Qwen 客户端；补齐配置、窗口、Schema、语义校验单元测试及 README。
 
 ## 关键约束
 
@@ -57,14 +57,20 @@
 
 ## 验收标准
 
-- [ ] 可编辑安装成功：`pip install -e .`。
-- [ ] `pytest -q` 全部通过，且测试不调用真实 API。
-- [ ] `ruff check .` 无严重错误。
-- [ ] 能处理本地 MP4，窗口与抽帧不使用右边界或未来帧。
-- [ ] 模型结果为当前窗口增量 Observation，且经过 Schema 和语义校验。
-- [ ] 非零起始时间的实时等待、全局窗口编号、失败窗口隔离均符合要求。
-- [ ] 原始响应、运行元数据、最终配置、指标和错误可追踪，且无效 Observation 不写入 `observations.jsonl`。
+- [x] 可编辑安装成功：`pip install -e .`。
+- [x] `pytest -q` 全部通过，且测试不调用真实 API。
+- [x] `ruff check .` 无严重错误。
+- [x] 能处理本地 MP4，窗口与抽帧不使用右边界或未来帧。
+- [x] 模型结果为当前窗口增量 Observation，且经过 Schema 和语义校验。
+- [x] 非零起始时间的实时等待、全局窗口编号、失败窗口隔离均符合要求。
+- [x] 原始响应、运行元数据、最终配置、指标和错误可追踪，且无效 Observation 不写入 `observations.jsonl`。
 
 ## 完成记录
 
-完成时填写：修改文件列表、验证命令与结果、已知限制，以及下一阶段输入。
+- 修改文件列表：见 S1-T01 至 S1-T10 完成记录；新增/修改 `src/qwen_stream_video/pipeline.py`、`src/qwen_stream_video/cli.py`、`src/qwen_stream_video/config.py`、`README.md`、`tests/unit/test_pipeline.py`、`tests/unit/test_cli.py`、`tests/unit/test_config.py`。
+- 验证命令与结果：
+  - `.venv/Scripts/python -m pip install -e .` 成功。
+  - `.venv/Scripts/python -m pytest tests/ -q`：97 个测试全部通过。
+  - `.venv/Scripts/python -m ruff check .`：无错误。
+- 已知限制：正常路径需要真实 API Key；已使用 Fake 客户端覆盖完整数据流。
+- 下一阶段输入：阶段二可基于当前 `ObservationBatch` 实现跨窗口实体注册（`EntityRegistry`）与动作跟踪（`ActionTracker`）。

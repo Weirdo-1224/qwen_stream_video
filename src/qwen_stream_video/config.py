@@ -112,10 +112,20 @@ class StorageConfig(BaseModel):
     save_sampled_frames: bool = False
 
 
+class VideoContextConfig(BaseModel):
+    """Optional human-readable context about the video being analysed."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    video_name: str | None = None
+    video_category: str | None = None
+    task_background: str | None = None
+
+
 class AppConfig(BaseModel):
     """Top-level application configuration."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     experiment: ExperimentConfig = Field(default_factory=ExperimentConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
@@ -124,6 +134,9 @@ class AppConfig(BaseModel):
     observation: ObservationConfig = Field(default_factory=ObservationConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
+    video_context: VideoContextConfig = Field(
+        default_factory=VideoContextConfig, alias="video_metadata"
+    )
 
 
 def _deep_update(base: dict[str, Any], updates: Mapping[str, Any]) -> dict[str, Any]:
@@ -236,5 +249,10 @@ def summarize_config(
         f"输出目录: {config.storage.output_root}",
         f"实时模式: {config.runtime.realtime}",
     ])
+
+    if config.video_context.video_name:
+        lines.append(f"视频名称: {config.video_context.video_name}")
+    if config.video_context.video_category:
+        lines.append(f"视频类别: {config.video_context.video_category}")
 
     return "\n".join(lines)
