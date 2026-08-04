@@ -1,0 +1,23 @@
+actions:
+  - observe
+  - inspect
+  - approach
+  - leave
+  - hold
+  - pick_up
+  - place
+  - touch
+  - press
+  - rotate
+  - switch
+  - open
+  - close
+  - insert
+  - remove
+  - connect
+  - disconnect
+  - adjust
+  - measure
+  - record
+  - point
+  - unknown
