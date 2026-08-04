@@ -1,6 +1,6 @@
 # S1-T05：增量观察 Schema
 
-**状态：TODO**　**依赖：S1-T01**
+**状态：DONE**　**依赖：S1-T01**
 
 ## 目标
 
@@ -25,4 +25,10 @@
 ## 完成记录
 
 - 修改文件：
+  - 新增 `src/qwen_stream_video/domain/observation.py`：定义 `EntityType`、`Viewpoint`、`Visibility`、`ActionPhase` 枚举与 `Attribute`、`Uncertainty`、`Entity`、`Action`、`SceneObservation`、`WindowObservation`、`ObservationBatch` Pydantic 模型。
+  - 更新 `src/qwen_stream_video/domain/__init__.py`：导出观察协议公共接口。
+  - 新增 `tests/unit/test_observation.py`：覆盖有效样例、置信度边界、窗口/动作时间顺序、非法枚举、边界框维度、可变默认值与批量观察。
 - 验证结果：
+  - `.venv/Scripts/python -m pytest tests/unit/test_observation.py -q`：10 个测试全部通过。
+  - `.venv/Scripts/python -m pytest tests/ -q`：45 个测试全部通过。
+  - `.venv/Scripts/python -m ruff check src/qwen_stream_video/domain/ tests/unit/test_observation.py`：无错误。
