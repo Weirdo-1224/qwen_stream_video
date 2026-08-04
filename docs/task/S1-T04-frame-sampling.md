@@ -1,6 +1,6 @@
 # S1-T04：抽帧与图像编码
 
-**状态：TODO**　**依赖：S1-T02、S1-T03**
+**状态：DONE**　**依赖：S1-T02、S1-T03**
 
 ## 目标
 
@@ -25,4 +25,8 @@
 ## 完成记录
 
 - 修改文件：
+  - 新增 `src/qwen_stream_video/video/sampling.py`：`SampledFrame` 模型、`sample_window_frames()` 与 `encode_frame_to_data_url()`。
+  - 更新 `src/qwen_stream_video/video/__init__.py`：导出新增的公共接口。
+  - 新增 `tests/unit/test_sampling.py`：覆盖采样数量、边界、max_frames 截断、真实帧不足、帧唯一性、序列化隐藏图像、小图不放大、大图等比缩小、Data URL 格式及参数校验。
 - 验证结果：
+  - `.venv/Scripts/python -m pytest tests/unit/test_sampling.py -q`：10 个测试全部通过。
