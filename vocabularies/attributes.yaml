@@ -1,0 +1,6 @@
+attributes:
+  - state
+  - position
+  - value
+  - status
+  - count

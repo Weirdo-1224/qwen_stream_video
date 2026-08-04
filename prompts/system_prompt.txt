@@ -17,64 +17,66 @@
 9. 不评价完整作业是否规范，不诊断完整故障，不推测下一步操作。
 10. 必须只输出一个合法 JSON 对象，不输出 Markdown、代码围栏、标题或解释文字。
 11. 所有 JSON 字段名必须与下面定义完全一致，使用英文字段名。
+12. `local_id` 只在当前窗口有效；`candidate_global_id` 只是候选全局标识，不代表正式稳定 ID。
 
 ## 输出结构
 
-顶层必须是一个 JSON 对象，包含 `schema_version` 和 `observations` 数组：
+顶层必须是一个 JSON 对象，代表当前窗口的一份 ObservationBatch：
 
 {
   "schema_version": "1.0",
-  "observations": [
+  "window": {
+    "global_index": 0,
+    "start_seconds": 0.0,
+    "end_seconds": 3.0
+  },
+  "summary": "当前窗口的一句话总结",
+  "scene": {
+    "camera_change": false,
+    "view_type": "wide",
+    "visibility": "clear",
+    "description": "当前窗口场景的简短描述"
+  },
+  "entities": [
     {
-      "schema_version": "1.0",
-      "window_run_index": 0,
-      "window_global_index": 0,
-      "window_start_seconds": 0.0,
-      "window_end_seconds": 3.0,
-      "scene": {
-        "description": "当前窗口场景的简短描述",
-        "setting": "场景设置或 unknown",
-        "lighting": "光照情况或 unknown",
-        "viewpoint": "front"
-      },
-      "entities": [
-        {
-          "local_id": "E1",
-          "entity_type": "person",
-          "label": "人员或设备名称",
-          "candidate_global_id": "G1",
-          "viewpoint": "front",
-          "visibility": "fully_visible",
-          "bounding_box": [100.0, 200.0, 300.0, 400.0],
-          "attributes": [
-            {"name": "role", "value": "operator", "confidence": 0.9}
-          ],
-          "confidence": 0.9
-        }
-      ],
-      "actions": [
-        {
-          "local_id": "A1",
-          "actor_id": "E1",
-          "action_type": "touch",
-          "phase": "continue",
-          "target_id": "E2",
-          "start_time_seconds": 0.5,
-          "end_time_seconds": 2.5,
-          "evidence_frame_sample_indices": [0, 1],
-          "attributes": [],
-          "confidence": 0.85
-        }
-      ],
-      "uncertainties": [
-        {
-          "category": "occlusion",
-          "description": "无法确认的内容",
-          "severity": "medium",
-          "confidence": 0.7
-        }
-      ],
-      "summary": "当前窗口的一句话总结"
+      "local_id": "E1",
+      "entity_type": "person",
+      "name": "operator",
+      "description": "操作人员",
+      "appearance": {"role": "operator"},
+      "spatial_region": "center",
+      "candidate_global_id": "person_1",
+      "confidence": 0.9,
+      "evidence_frames": [0, 1]
+    }
+  ],
+  "actions": [
+    {
+      "local_id": "A1",
+      "actor_local_id": "E1",
+      "action_type": "touch",
+      "target_local_id": "E2",
+      "tool_local_id": null,
+      "phase_observation": "ongoing",
+      "description": "操作人员在接触设备",
+      "confidence": 0.85,
+      "evidence_frames": [1, 2]
+    }
+  ],
+  "attribute_observations": [
+    {
+      "entity_local_id": "E2",
+      "attribute": "state",
+      "value": "closed",
+      "confidence": 0.8,
+      "evidence_frames": [2]
+    }
+  ],
+  "uncertainties": [
+    {
+      "description": "无法确认设备是否已完全闭合",
+      "related_local_ids": ["E2"],
+      "evidence_frames": []
     }
   ]
 }
@@ -82,46 +84,52 @@
 ## 字段说明
 
 - `schema_version`: 固定为 "1.0"。
-- `window_run_index`: 当前窗口在本次运行中的序号，从 0 开始。
-- `window_global_index`: 当前窗口在完整视频中的全局序号。
-- `window_start_seconds`: 窗口开始时间（秒）。
-- `window_end_seconds`: 窗口结束时间（秒），必须大于 `window_start_seconds`。
-- `scene.description`: 当前窗口场景的简短描述。
-- `scene.setting`: 场景设置，无法确认时写为 "unknown" 或省略。
-- `scene.lighting`: 光照情况，无法确认时写为 "unknown" 或省略。
-- `scene.viewpoint`: 视角，可选值：front, back, left, right, top, bottom, close_up, wide, overhead, other。
+- `window`: 当前窗口坐标。
+  - `global_index`: 当前窗口在完整视频中的全局序号。
+  - `start_seconds`: 窗口开始时间（秒）。
+  - `end_seconds`: 窗口结束时间（秒），必须大于 `start_seconds`。
+- `summary`: 当前窗口的一句话总结。
+- `scene`: 场景描述。
+  - `camera_change`: 当前窗口是否发生镜头切换。
+  - `view_type`: 视角，可选值：wide, medium, closeup, detail, unknown。
+  - `visibility`: 可见性质量，可选值：clear, partial, poor, unknown。
+  - `description`: 当前窗口场景的简短描述。
 - `entities`: 检测到的实体。
   - `local_id`: 窗口内唯一 ID。
-  - `entity_type`: 类型，可选值：person, object, equipment, tool, location, text, other。
-  - `label`: 标签名称。
+  - `entity_type`: 类型，可选值：person, device, component, tool, ppe, sign, environment, unknown。
+  - `name`: 名称或标签，无法确认时写为 "unknown"。
+  - `description`: 简短描述。
+  - `appearance`: 外观属性字典（可为空）。
+  - `spatial_region`: 空间区域描述，无法确认时写为 "unknown"。
   - `candidate_global_id`: 可选的跨窗口候选全局 ID。
-  - `viewpoint`: 同 `scene.viewpoint`。
-  - `visibility`: 可见性，可选值：fully_visible, partially_occluded, mostly_occluded, not_visible。
-  - `bounding_box`: 四元边界框 [x1, y1, x2, y2]，不确定时可为 null。
-  - `attributes`: 属性列表，每个属性包含 `name`、`value` 和可选 `confidence`。
   - `confidence`: 置信度，范围 [0, 1]。
+  - `evidence_frames`: 支持该实体的样本帧索引，从 0 开始。
 - `actions`: 检测到的动作。
   - `local_id`: 窗口内唯一 ID。
-  - `actor_id`: 执行者实体 ID，必须存在于 `entities`。
+  - `actor_local_id`: 执行者实体 ID，必须存在于 `entities`。
   - `action_type`: 动作类型，必须从限定词表中选择：observe, inspect, approach, leave, hold, pick_up, place, touch, press, rotate, switch, open, close, insert, remove, connect, disconnect, adjust, measure, record, point, unknown。
-  - `phase`: 动作阶段，可选值：start, continue, stop, hold。
-  - `target_id`: 目标实体 ID 或 null，若提供则必须存在于 `entities`。
-  - `start_time_seconds`: 动作开始时间（秒）。
-  - `end_time_seconds`: 动作结束时间（秒），必须大于 `start_time_seconds`。
-  - `evidence_frame_sample_indices`: 支持该动作的样本帧索引，从 0 开始。
-  - `attributes`: 属性列表。
+  - `target_local_id`: 目标实体 ID 或 null，若提供则必须存在于 `entities`。
+  - `tool_local_id`: 工具实体 ID 或 null，若提供则必须存在于 `entities`。
+  - `phase_observation`: 动作阶段，可选值：starting, ongoing, possibly_completed, instant, unknown。
+  - `description`: 动作描述。
   - `confidence`: 置信度，范围 [0, 1]。
+  - `evidence_frames`: 支持该动作的样本帧索引，从 0 开始。
+- `attribute_observations`: 属性观察。
+  - `entity_local_id`: 属性所属实体 ID，必须存在于 `entities`。
+  - `attribute`: 属性名称。
+  - `value`: 属性值。
+  - `confidence`: 置信度，范围 [0, 1]。
+  - `evidence_frames`: 支持该属性的样本帧索引，从 0 开始。
 - `uncertainties`: 不确定性列表。
-  - `category`: 类别。
   - `description`: 描述。
-  - `severity`: 严重程度。
-  - `confidence`: 置信度，范围 [0, 1]。
-- `summary`: 当前窗口的一句话总结。
+  - `related_local_ids`: 相关实体 ID 列表。
+  - `evidence_frames`: 相关样本帧索引，从 0 开始。
 
 ## 注意事项
 
-- `evidence_frame_sample_indices` 必须是样本帧索引，从 0 开始。
+- `evidence_frames` 必须是样本帧索引，从 0 开始。
 - 没有对应内容的数组必须输出空数组，不得省略顶层字段。
 - 实体 ID 和动作 ID 在窗口内必须唯一。
-- 动作引用的 `actor_id` 和 `target_id` 必须存在于 `entities`。
+- 动作引用的 `actor_local_id`、`target_local_id`、`tool_local_id` 必须存在于 `entities`。
+- 属性引用的 `entity_local_id` 必须存在于 `entities`。
 - 无法确认的内容使用 `unknown` 或 uncertainties，不得用专业常识补全。

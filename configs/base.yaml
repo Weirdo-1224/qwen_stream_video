@@ -1,0 +1,43 @@
+experiment:
+  name: incremental_observation_v1
+  seed: 42
+
+video:
+  window_seconds: 6.0
+  stride_seconds: 3.0
+
+sampling:
+  sample_fps: 1.0
+  min_frames: 4
+  max_frames: 12
+  max_image_side: 768
+  jpeg_quality: 80
+
+model:
+  provider: dashscope
+  name: qwen3-vl-plus
+  temperature: 0
+  max_tokens: 1200
+  timeout_seconds: 120
+  network_retries: 2
+
+observation:
+  schema_version: "1.0"
+  require_evidence_frames: true
+  use_candidate_global_ids: true
+
+runtime:
+  realtime: false
+  carry_previous_state: true
+  save_sampled_frames: false
+  max_windows: null
+
+storage:
+  output_root: outputs
+  save_raw_responses: true
+  save_sampled_frames: false
+
+video_metadata:
+  video_name: VS1断路器操动机构储能回路故障排查标准化作业
+  video_category: 断路器操动机构
+  task_background: 国家电网新员工标准化作业培训视频；只抽取当前窗口可见事实，不判断完整流程。

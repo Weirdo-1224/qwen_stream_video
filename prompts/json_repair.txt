@@ -1,0 +1,6 @@
+If the model response is not valid JSON, attempt these local fixes before giving up:
+1. Strip surrounding Markdown fences (```json ... ```).
+2. Extract the outermost {...} object.
+3. Remove trailing commas before closing brackets or braces.
+4. Replace single quotes with double quotes for JSON keys and string values.
+5. If the result is still not valid JSON, record a parse error and continue to the next window.

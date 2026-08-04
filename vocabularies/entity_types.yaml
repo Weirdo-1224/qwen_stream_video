@@ -1,0 +1,9 @@
+entity_types:
+  - person
+  - device
+  - component
+  - tool
+  - ppe
+  - sign
+  - environment
+  - unknown
