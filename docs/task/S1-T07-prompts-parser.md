@@ -1,6 +1,6 @@
 # S1-T07：提示词与响应解析
 
-**状态：TODO**　**依赖：S1-T05、S1-T06**
+**状态：DONE**　**依赖：S1-T05、S1-T06**
 
 ## 目标
 
@@ -25,4 +25,12 @@
 ## 完成记录
 
 - 修改文件：
+  - 新增 `src/qwen_stream_video/inference/prompts.py`：定义 `PromptBuilder` 与默认系统/用户提示词模板，支持窗口、帧时间、视频背景与上一窗口摘要的动态拼接。
+  - 新增 `src/qwen_stream_video/inference/parser.py`：定义 `ResponseParser`，完成去 Markdown 代码围栏、JSON 提取、`json.loads`、Pydantic Schema 校验与语义校验流程。
+  - 更新 `src/qwen_stream_video/inference/__init__.py`：导出 `PromptBuilder` 与 `ResponseParser`。
+  - 更新 `prompts/system_prompt.txt` 与 `prompts/user_prompt.txt`：与新 Observation Schema 对齐。
+  - 新增 `tests/unit/test_prompts_parser.py`：覆盖用户提示词构建、正常 JSON、Markdown 代码块、包裹文本、非法 JSON、非法 Schema 及语义错误等场景。
 - 验证结果：
+  - `.venv/Scripts/python -m pytest tests/unit/test_prompts_parser.py -q`：11 个测试全部通过。
+  - `.venv/Scripts/python -m pytest tests/ -q`：67 个测试全部通过。
+  - `.venv/Scripts/python -m ruff check .`：无错误。

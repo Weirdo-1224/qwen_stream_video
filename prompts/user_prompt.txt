@@ -3,18 +3,29 @@
 视频名称：{video_name}
 视频类别：{video_category}
 已知任务背景：{task_background}
-当前窗口：{window_start} 至 {window_end}
-采样帧数：{frame_count}
-等效采样帧率：{sample_fps:.3f} FPS
 
-输入图像已经严格按照时间先后顺序排列，且不包含 {window_end} 之后的任何画面。
+当前窗口：
+- 窗口运行序号（run_index）：{window_run_index}
+- 窗口全局序号（global_index）：{window_global_index}
+- 开始时间：{window_start_seconds:.3f} 秒
+- 结束时间：{window_end_seconds:.3f} 秒
+- 窗口类型：{window_type}
 
-上一窗口压缩状态：
-{previous_state_json}
+采样帧信息：
+- 采样帧数：{frame_count}
+- 等效采样帧率：{sample_fps:.3f} FPS
+- 各帧时间戳（秒）：{frame_timestamps}
+
+输入图像已经严格按照时间先后顺序排列，且不包含 {window_end_seconds:.3f} 秒之后的任何画面。
+
+上一窗口摘要：
+{previous_summary}
 
 要求：
 1. 只分析当前窗口，不总结完整视频，不预测未来。
-2. 结合上一窗口状态区分动作的 started、ongoing、ended、instant 或 uncertain。
-3. 状态保持不变时，不得重复输出为新的 state_changes。
+2. 结合上一窗口摘要区分动作的阶段（start / continue / stop / hold）。
+3. 状态保持不变时，不得重复输出为新的变化。
 4. 证据不足时写入 uncertainties，不得用专业常识补全。
-5. 严格输出 System Prompt 规定的 JSON 对象。
+5. `evidence_frame_sample_indices` 必须使用当前窗口提供的样本帧索引（从 0 开始），当前窗口共有 {frame_count} 帧，有效索引范围为 [0, {frame_count}-1]。
+6. 严格输出 System Prompt 规定的 JSON 对象，字段名必须与定义完全一致。
+7. 动作类型必须从限定词表中选择。

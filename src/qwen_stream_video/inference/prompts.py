@@ -1,4 +1,17 @@
-你是一名面向变电站作业视频的流式视觉信息抽取助手。
+"""Prompt construction for incremental video observations.
+
+The :class:`PromptBuilder` produces a system prompt and a per-window user prompt
+that match the :class:`ObservationBatch` schema defined in
+``qwen_stream_video.domain.observation``.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from ..video import SampledFrame, VideoWindow
+
+DEFAULT_SYSTEM_PROMPT = """你是一名面向变电站作业视频的流式视觉信息抽取助手。
 
 你只接收一个连续视频流中的局部滑动窗口。当前窗口可能位于视频开始、中间或结束位置。你只能依据当前窗口提供的图像、时间范围以及可选的上一窗口摘要进行分析。
 
@@ -124,4 +137,91 @@
 - 没有对应内容的数组必须输出空数组，不得省略顶层字段。
 - 实体 ID 和动作 ID 在窗口内必须唯一。
 - 动作引用的 `actor_id` 和 `target_id` 必须存在于 `entities`。
-- 无法确认的内容使用 `unknown` 或 uncertainties，不得用专业常识补全。
+- 无法确认的内容使用 `unknown` 或 uncertainties，不得用专业常识补全。"""
+
+DEFAULT_USER_PROMPT_TEMPLATE = """请分析当前视频滑动窗口。
+
+视频名称：{video_name}
+视频类别：{video_category}
+已知任务背景：{task_background}
+
+当前窗口：
+- 窗口运行序号（run_index）：{window_run_index}
+- 窗口全局序号（global_index）：{window_global_index}
+- 开始时间：{window_start_seconds:.3f} 秒
+- 结束时间：{window_end_seconds:.3f} 秒
+- 窗口类型：{window_type}
+
+采样帧信息：
+- 采样帧数：{frame_count}
+- 等效采样帧率：{sample_fps:.3f} FPS
+- 各帧时间戳（秒）：{frame_timestamps}
+
+输入图像已经严格按照时间先后顺序排列，且不包含 {window_end_seconds:.3f} 秒之后的任何画面。
+
+上一窗口摘要：
+{previous_summary}
+
+要求：
+1. 只分析当前窗口，不总结完整视频，不预测未来。
+2. 结合上一窗口摘要区分动作的阶段（start / continue / stop / hold）。
+3. 状态保持不变时，不得重复输出为新的变化。
+4. 证据不足时写入 uncertainties，不得用专业常识补全。
+5. `evidence_frame_sample_indices` 必须使用当前窗口提供的样本帧索引（从 0 开始），当前窗口共有 {frame_count} 帧，有效索引范围为 [0, {frame_count}-1]。
+6. 严格输出 System Prompt 规定的 JSON 对象，字段名必须与定义完全一致。
+7. 动作类型必须从限定词表中选择。"""
+
+
+class PromptBuilder:
+    """Builds system and user prompts for a single video window."""
+
+    def __init__(self, system_prompt: str | None = None) -> None:
+        """Initialize with an optional custom system prompt.
+
+        Args:
+            system_prompt: Custom system prompt text. When ``None`` a default
+                prompt describing the observation schema is used.
+        """
+        self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
+
+    def build_user_prompt(
+        self,
+        window: VideoWindow,
+        sampled_frames: list[SampledFrame],
+        video_context: dict[str, Any] | None = None,
+        previous_summary: str | None = None,
+    ) -> str:
+        """Build a dynamic user prompt for the given window.
+
+        Args:
+            window: The temporal window being analysed.
+            sampled_frames: Frames sampled from ``window``; used to list
+                timestamps and compute the effective sampling FPS.
+            video_context: Optional video metadata such as ``video_name``,
+                ``video_category`` and ``task_background``.
+            previous_summary: Optional one-sentence summary of the previous
+                window.
+
+        Returns:
+            The formatted user prompt string.
+        """
+        context = video_context or {}
+        frame_count = len(sampled_frames)
+        duration = window.end_seconds - window.start_seconds
+        sample_fps = frame_count / duration if duration > 0 else 0.0
+        frame_timestamps = [f"{frame.timestamp:.3f}" for frame in sampled_frames]
+
+        return DEFAULT_USER_PROMPT_TEMPLATE.format(
+            video_name=context.get("video_name", "未提供"),
+            video_category=context.get("video_category", "未提供"),
+            task_background=context.get("task_background", "未提供"),
+            window_run_index=window.run_index,
+            window_global_index=window.global_index,
+            window_start_seconds=window.start_seconds,
+            window_end_seconds=window.end_seconds,
+            window_type=window.window_type,
+            frame_count=frame_count,
+            sample_fps=sample_fps,
+            frame_timestamps=", ".join(frame_timestamps),
+            previous_summary=previous_summary or "无（当前窗口是首个窗口）",
+        )
