@@ -1,29 +1,31 @@
 """Domain models for qwen-stream-video."""
 
-from .observation import (
-    Action,
-    ActionPhase,
-    Attribute,
-    Entity,
+from .enums import (
+    ActionPhaseObservation,
     EntityType,
+    ViewType,
+    VisibilityQuality,
+)
+from .observation import (
+    ActionObservation,
+    AttributeObservation,
+    EntityObservation,
     ObservationBatch,
     SceneObservation,
-    Uncertainty,
-    Viewpoint,
-    Visibility,
+    UncertaintyObservation,
     WindowObservation,
 )
 
 __all__ = [
-    "Action",
-    "ActionPhase",
-    "Attribute",
-    "Entity",
+    "ActionObservation",
+    "ActionPhaseObservation",
+    "AttributeObservation",
+    "EntityObservation",
     "EntityType",
     "ObservationBatch",
     "SceneObservation",
-    "Uncertainty",
-    "Viewpoint",
-    "Visibility",
+    "UncertaintyObservation",
+    "ViewType",
+    "VisibilityQuality",
     "WindowObservation",
 ]
