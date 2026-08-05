@@ -65,6 +65,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Root directory for run outputs (overrides config).",
     )
     parser.add_argument(
+        "--video-name",
+        type=str,
+        default=None,
+        help="Override the video name shown in prompts (overrides config).",
+    )
+    parser.add_argument(
+        "--video-category",
+        type=str,
+        default=None,
+        help="Override the video category shown in prompts (overrides config).",
+    )
+    parser.add_argument(
+        "--task-background",
+        type=str,
+        default=None,
+        help="Override the task background shown in prompts (overrides config).",
+    )
+    parser.add_argument(
         "--start-time",
         type=float,
         default=None,
@@ -157,6 +175,12 @@ def _build_config(args: argparse.Namespace) -> Any:
         cli_overrides["storage.output_root"] = args.output_dir
     if args.max_windows:
         cli_overrides["runtime.max_windows"] = args.max_windows
+    if args.video_name is not None:
+        cli_overrides["video_context.video_name"] = args.video_name
+    if args.video_category is not None:
+        cli_overrides["video_context.video_category"] = args.video_category
+    if args.task_background is not None:
+        cli_overrides["video_context.task_background"] = args.task_background
 
     return load_config(
         config_path=_resolve_config_path(args),

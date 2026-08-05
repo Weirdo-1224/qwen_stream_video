@@ -208,6 +208,10 @@ def load_config(
         if yaml_data:
             if not isinstance(yaml_data, dict):
                 raise ConfigurationError(f"Configuration file {path} must contain a mapping")
+            # Normalize YAML alias keys to Pydantic field names so deep merging
+            # and dotted CLI overrides operate on the same keys.
+            if "video_metadata" in yaml_data and "video_context" not in yaml_data:
+                yaml_data["video_context"] = yaml_data.pop("video_metadata")
             merged = _deep_update(merged, yaml_data)
             if isinstance(yaml_data.get("model"), dict):
                 model_source = "yaml"
@@ -265,5 +269,7 @@ def summarize_config(
         lines.append(f"视频名称: {config.video_context.video_name}")
     if config.video_context.video_category:
         lines.append(f"视频类别: {config.video_context.video_category}")
+    if config.video_context.task_background:
+        lines.append(f"任务背景: {config.video_context.task_background}")
 
     return "\n".join(lines)

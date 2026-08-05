@@ -30,13 +30,13 @@ observation:
 runtime:
   realtime: false
   carry_previous_state: true
-  save_sampled_frames: false
+  save_sampled_frames: true
   max_windows: null
 
 storage:
   output_root: outputs
   save_raw_responses: true
-  save_sampled_frames: false
+  save_sampled_frames: true
 
 video_metadata:
   video_name: VS1断路器操动机构储能回路故障排查标准化作业

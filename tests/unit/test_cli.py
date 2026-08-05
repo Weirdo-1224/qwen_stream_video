@@ -164,3 +164,80 @@ def test_normal_run_requires_api_key(
     assert exit_code == 1
     captured = capsys.readouterr()
     assert "API Key" in captured.err
+
+
+def test_video_metadata_overrides_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dummy-key")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+experiment:
+  name: cli_test
+video_metadata:
+  video_name: 默认视频名
+  video_category: 默认类别
+  task_background: 默认背景
+""",
+        encoding="utf-8",
+    )
+    video_path = _make_test_video(tmp_path / "video.mp4")
+    exit_code = main(
+        [
+            "--config",
+            str(config_path),
+            "--video",
+            str(video_path),
+            "--print-config",
+            "--video-name",
+            "命令行视频名",
+            "--video-category",
+            "命令行类别",
+            "--task-background",
+            "命令行背景",
+        ]
+    )
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "视频名称: 命令行视频名" in captured.out
+    assert "视频类别: 命令行类别" in captured.out
+    assert "任务背景: 命令行背景" in captured.out
+    assert "默认视频名" not in captured.out
+
+
+def test_video_metadata_defaults_from_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dummy-key")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+experiment:
+  name: cli_test
+video_metadata:
+  video_name: 配置视频名
+  video_category: 配置类别
+  task_background: 配置背景
+""",
+        encoding="utf-8",
+    )
+    video_path = _make_test_video(tmp_path / "video.mp4")
+    exit_code = main(
+        [
+            "--config",
+            str(config_path),
+            "--video",
+            str(video_path),
+            "--print-config",
+        ]
+    )
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "视频名称: 配置视频名" in captured.out
+    assert "视频类别: 配置类别" in captured.out
+    assert "任务背景: 配置背景" in captured.out
