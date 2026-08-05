@@ -2,14 +2,20 @@
 
 The :class:`QwenClient` isolates OpenAI-compatible Qwen/DashScope requests and
 returns a :class:`RawInferenceResult` containing the raw text plus request
-metrics.  It only retries transient network errors, HTTP 429 and 5xx responses.
+metrics. It only retries transient network errors, HTTP 429 and 5xx responses.
+
+A :class:`LocalTransformersClient` is provided for local Qwen3-VL inference via
+Hugging Face transformers.
 
 A :class:`FakeQwenClient` is provided for offline tests and local development.
 """
 
 from __future__ import annotations
 
+import base64
 import time
+import uuid
+from io import BytesIO
 from typing import Any
 
 import openai
@@ -18,6 +24,19 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import ModelConfig
 from ..exceptions import InferenceNetworkError, InferenceRateLimitError, InferenceServerError
+
+try:
+    from PIL import Image
+    from qwen_vl_utils import process_vision_info
+    from transformers import AutoModelForVision2Seq, AutoProcessor
+
+    _HAS_LOCAL_DEPS = True
+except ImportError:  # pragma: no cover - optional local dependencies
+    Image = None
+    process_vision_info = None
+    AutoModelForVision2Seq = None
+    AutoProcessor = None
+    _HAS_LOCAL_DEPS = False
 
 
 class RawInferenceResult(BaseModel):
@@ -148,6 +167,166 @@ class QwenClient:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": content},
         ]
+
+
+class LocalTransformersClient:
+    """Local Qwen3-VL inference via Hugging Face transformers."""
+
+    def __init__(self, config: ModelConfig) -> None:
+        """Initialize the client without loading the model yet.
+
+        Args:
+            config: Resolved model configuration including the local model path,
+                device, dtype, and quantization settings.
+        """
+        if not _HAS_LOCAL_DEPS:
+            raise RuntimeError(
+                "Local inference dependencies are missing. "
+                'Install them with: pip install -e ".[local]"'
+            )
+        if config.provider != "local_transformers":
+            raise ValueError(
+                f"LocalTransformersClient requires provider=local_transformers, "
+                f"got {config.provider}"
+            )
+        self.config = config
+        self._processor: AutoProcessor | None = None
+        self._model: AutoModelForVision2Seq | None = None
+
+    def _load(self) -> None:
+        """Lazy-load the processor and model on first inference."""
+        if self._model is not None:
+            return
+
+        model_path = self.config.local_model_path
+        if not model_path:
+            raise ValueError("local_model_path is not configured")
+
+        torch_dtype = self._torch_dtype()
+        device_map = self._device_map()
+
+        self._processor = AutoProcessor.from_pretrained(
+            model_path,
+            trust_remote_code=self.config.trust_remote_code,
+        )
+        self._model = AutoModelForVision2Seq.from_pretrained(
+            model_path,
+            torch_dtype=torch_dtype,
+            device_map=device_map,
+            trust_remote_code=self.config.trust_remote_code,
+            load_in_8bit=self.config.load_in_8bit,
+            load_in_4bit=self.config.load_in_4bit,
+        )
+
+    def _torch_dtype(self) -> Any:
+        """Return the torch dtype object matching the configured dtype name."""
+        import torch
+
+        mapping = {
+            "bfloat16": torch.bfloat16,
+            "float16": torch.float16,
+            "float32": torch.float32,
+        }
+        return mapping[self.config.torch_dtype]
+
+    def _device_map(self) -> str:
+        """Return the device_map argument for transformers model loading."""
+        if self.config.device in ("auto", "cuda"):
+            return "auto"
+        return "cpu"
+
+    @staticmethod
+    def _decode_data_url(data_url: str) -> Image.Image:
+        """Decode a base64 data URL into a PIL RGB image."""
+        prefix = "data:image/"
+        if not data_url.startswith(prefix):
+            raise ValueError(f"Unsupported image data URL: {data_url[:40]}...")
+
+        try:
+            meta, b64 = data_url.split(",", 1)
+        except ValueError as exc:
+            raise ValueError(f"Invalid image data URL: {data_url[:40]}...") from exc
+
+        if "base64" not in meta:
+            raise ValueError(f"Only base64 image data URLs are supported: {meta}")
+
+        raw = base64.b64decode(b64)
+        return Image.open(BytesIO(raw)).convert("RGB")
+
+    def _build_messages(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        images: list[Image.Image],
+    ) -> list[dict[str, Any]]:
+        """Build a Qwen3-VL chat message list with system + user images/text."""
+        content: list[dict[str, Any]] = []
+        for image in images:
+            content.append({"type": "image", "image": image})
+        content.append({"type": "text", "text": user_prompt})
+
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": content},
+        ]
+
+    def infer(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        images: list[str],
+    ) -> RawInferenceResult:
+        """Run local Qwen3-VL inference and return raw text + metrics."""
+        self._load()
+
+        pil_images = [self._decode_data_url(url) for url in images]
+        messages = self._build_messages(system_prompt, user_prompt, pil_images)
+
+        text = self._processor.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        image_inputs, video_inputs = process_vision_info(messages)
+        inputs = self._processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt",
+        )
+        inputs = inputs.to(self._model.device)
+
+        start = time.perf_counter()
+        generated_ids = self._model.generate(
+            **inputs,
+            max_new_tokens=self.config.max_tokens,
+            do_sample=self.config.temperature > 0,
+            temperature=(
+                self.config.temperature if self.config.temperature > 0 else None
+            ),
+        )
+        latency_seconds = time.perf_counter() - start
+
+        input_token_count = int(inputs.input_ids.shape[1])
+        generated_ids_trimmed = generated_ids[:, input_token_count:]
+        output_token_count = int(generated_ids.shape[1] - input_token_count)
+
+        output_text = self._processor.batch_decode(
+            generated_ids_trimmed,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )[0]
+
+        return RawInferenceResult(
+            raw_text=output_text,
+            resolved_model=self.config.name,
+            latency_seconds=latency_seconds,
+            request_id=uuid.uuid4().hex,
+            input_tokens=input_token_count,
+            output_tokens=output_token_count,
+            attempt_count=1,
+        )
 
 
 class FakeQwenClient(BaseModel):

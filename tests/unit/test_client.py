@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,6 +14,7 @@ from qwen_stream_video.exceptions import (
     InferenceServerError,
 )
 from qwen_stream_video.inference import FakeQwenClient, QwenClient, RawInferenceResult
+from qwen_stream_video.inference.client import LocalTransformersClient
 
 
 @pytest.fixture
@@ -223,3 +225,79 @@ def test_qwen_client_zero_retries_fail_immediately(
         client.infer("sys", "user", [])
 
     assert mock_client.chat.completions.create.call_count == 1
+
+
+def _make_b64_image() -> str:
+    return "data:image/jpeg;base64," + base64.b64encode(b"fake").decode("ascii")
+
+
+@patch("qwen_stream_video.inference.client._HAS_LOCAL_DEPS", False)
+def test_local_transformers_client_requires_dependencies() -> None:
+    config = ModelConfig(
+        provider="local_transformers",
+        local_model_path="/some/path",
+    )
+    with pytest.raises(RuntimeError, match="Local inference dependencies are missing"):
+        LocalTransformersClient(config)
+
+
+@patch("qwen_stream_video.inference.client.uuid.uuid4")
+@patch("qwen_stream_video.inference.client.process_vision_info")
+@patch("qwen_stream_video.inference.client.AutoModelForVision2Seq")
+@patch("qwen_stream_video.inference.client.AutoProcessor")
+@patch("qwen_stream_video.inference.client.Image")
+def test_local_transformers_client_runs_inference(
+    mock_image: MagicMock,
+    mock_auto_processor: MagicMock,
+    mock_auto_model: MagicMock,
+    mock_process_vision: MagicMock,
+    mock_uuid: MagicMock,
+) -> None:
+    mock_uuid.return_value.hex = "req-abc-123"
+
+    mock_processor = MagicMock()
+    mock_auto_processor.from_pretrained.return_value = mock_processor
+    mock_processor.apply_chat_template.return_value = "<chat_text>"
+    mock_processor_inputs = MagicMock()
+    mock_processor_inputs.to.return_value = mock_processor_inputs
+    mock_processor_inputs.input_ids.shape = [1, 10]
+    mock_processor.return_value = mock_processor_inputs
+    mock_processor.batch_decode.return_value = ['{"summary": "test"}']
+
+    mock_generated_ids = MagicMock()
+    mock_generated_ids.shape = [1, 20]
+    mock_generated_ids.__getitem__.return_value = MagicMock()
+    mock_model = MagicMock()
+    mock_model.device = "cpu"
+    mock_model.generate.return_value = mock_generated_ids
+    mock_auto_model.from_pretrained.return_value = mock_model
+
+    mock_process_vision.return_value = ([MagicMock()], None)
+
+    mock_pil_image = MagicMock()
+    mock_image.open.return_value.convert.return_value = mock_pil_image
+
+    config = ModelConfig(
+        provider="local_transformers",
+        name="Qwen3-VL-8B-Instruct",
+        local_model_path="/home/Datasets/Hf_model/Qwen3-VL-8B-Instruct",
+        device="cpu",
+        torch_dtype="float32",
+        max_tokens=100,
+        temperature=0,
+    )
+    client = LocalTransformersClient(config)
+    result = client.infer("system text", "user text", [_make_b64_image()])
+
+    assert isinstance(result, RawInferenceResult)
+    assert result.raw_text == '{"summary": "test"}'
+    assert result.resolved_model == "Qwen3-VL-8B-Instruct"
+    assert result.request_id == "req-abc-123"
+    assert result.attempt_count == 1
+    assert result.input_tokens == 10
+    assert result.output_tokens == 10
+
+    mock_auto_model.from_pretrained.assert_called_once()
+    call_kwargs = mock_auto_model.from_pretrained.call_args.kwargs
+    assert str(call_kwargs["torch_dtype"]) == "torch.float32"
+    assert call_kwargs["device_map"] == "cpu"
