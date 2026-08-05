@@ -14,6 +14,7 @@ class EntityType(str, Enum):
     TOOL = "tool"
     PPE = "ppe"
     SIGN = "sign"
+    DOCUMENT = "document"
     ENVIRONMENT = "environment"
     UNKNOWN = "unknown"
 

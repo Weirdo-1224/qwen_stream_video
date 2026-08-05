@@ -127,7 +127,7 @@ DEFAULT_SYSTEM_PROMPT = """你是一名面向变电站作业视频的流式视�
   - `description`: 当前窗口场景的简短描述。
 - `entities`: 检测到的实体。
   - `local_id`: 窗口内唯一 ID。
-  - `entity_type`: 类型，可选值：person, device, component, tool, ppe, sign, environment, unknown。
+  - `entity_type`: 类型，可选值：person, device, component, tool, ppe, sign, document, environment, unknown。
   - `name`: 名称或标签，无法确认时写为 "unknown"。
   - `description`: 简短描述。
   - `appearance`: 外观属性字典（可为空）。

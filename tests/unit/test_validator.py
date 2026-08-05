@@ -254,3 +254,52 @@ def test_valid_references_pass(
     assert warnings == []
     assert valid_batch.entities[0].evidence_frames == [0]
     assert valid_batch.actions[0].evidence_frames == [0, 1]
+
+
+def test_multiple_attributes_for_same_entity_are_allowed(
+    validator: ObservationSemanticValidator,
+    valid_batch: ObservationBatch,
+    sampled_frames: list[SampledFrame],
+) -> None:
+    """A single entity may have several different attributes in one window."""
+    valid_batch.attribute_observations = [
+        AttributeObservation(
+            entity_local_id="E2",
+            attribute="state",
+            value="closed",
+            confidence=0.8,
+        ),
+        AttributeObservation(
+            entity_local_id="E2",
+            attribute="position",
+            value="vertical",
+            confidence=0.7,
+        ),
+    ]
+    warnings = validator.validate(valid_batch, sampled_frames)
+    assert warnings == []
+
+
+def test_duplicate_attribute_for_same_entity_emits_warning(
+    validator: ObservationSemanticValidator,
+    valid_batch: ObservationBatch,
+    sampled_frames: list[SampledFrame],
+) -> None:
+    """Observing the exact same attribute twice on one entity is only a warning."""
+    valid_batch.attribute_observations = [
+        AttributeObservation(
+            entity_local_id="E2",
+            attribute="state",
+            value="closed",
+            confidence=0.8,
+        ),
+        AttributeObservation(
+            entity_local_id="E2",
+            attribute="state",
+            value="open",
+            confidence=0.6,
+        ),
+    ]
+    warnings = validator.validate(valid_batch, sampled_frames)
+    assert len(warnings) == 1
+    assert "Duplicate attribute observation" in warnings[0]

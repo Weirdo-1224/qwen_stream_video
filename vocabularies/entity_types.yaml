@@ -5,5 +5,6 @@ entity_types:
   - tool
   - ppe
   - sign
+  - document
   - environment
   - unknown

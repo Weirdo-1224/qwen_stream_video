@@ -84,6 +84,7 @@ class ObservationSemanticValidator:
         self._validate_references(batch, entity_ids)
         self._validate_evidence_frames(batch, len(sampled_frames))
         warnings = self._validate_action_vocabulary(batch)
+        warnings.extend(self._validate_attribute_uniqueness(batch))
 
         return warnings
 
@@ -115,13 +116,26 @@ class ObservationSemanticValidator:
                 f"{sorted(duplicates)}"
             )
 
-        attribute_entity_ids = [a.entity_local_id for a in batch.attribute_observations]
-        duplicates = self._find_duplicates(attribute_entity_ids)
-        if duplicates:
-            raise ModelOutputSemanticError(
-                f"Duplicate attribute entity_local_id(s) in window "
-                f"{batch.window.global_index}: {sorted(duplicates)}"
-            )
+    def _validate_attribute_uniqueness(
+        self, batch: ObservationBatch
+    ) -> list[str]:
+        """Detect repeated (entity, attribute) pairs and return warnings.
+
+        Unlike entity and action IDs, a single entity may have multiple
+        attributes in the same window. Only duplicate observations of the
+        exact same attribute are reported as warnings.
+        """
+        warnings: list[str] = []
+        seen: set[tuple[str, str]] = set()
+        for attribute in batch.attribute_observations:
+            key = (attribute.entity_local_id, attribute.attribute)
+            if key in seen:
+                warnings.append(
+                    f"Duplicate attribute observation {key[1]!r} for entity "
+                    f"{key[0]!r} in window {batch.window.global_index}"
+                )
+            seen.add(key)
+        return warnings
 
     def _find_duplicates(self, items: list[str]) -> set[str]:
         """Return the set of values that appear more than once."""

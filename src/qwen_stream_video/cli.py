@@ -9,6 +9,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
 from .config import load_config, summarize_config
 from .exceptions import ConfigurationError, VideoOpenError
 from .inference import FakeQwenClient, PromptBuilder, QwenClient, ResponseParser
@@ -131,6 +133,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_config_path(args: argparse.Namespace) -> Path | None:
+    """Return the effective config path, defaulting to config.yaml if present."""
+    if args.config is not None:
+        return args.config
+    default = Path("config.yaml")
+    if default.is_file():
+        return default
+    return None
+
+
 def _build_config(args: argparse.Namespace) -> Any:
     """Load the resolved configuration from CLI arguments."""
     cli_overrides: dict[str, Any] = {}
@@ -147,7 +159,7 @@ def _build_config(args: argparse.Namespace) -> Any:
         cli_overrides["runtime.max_windows"] = args.max_windows
 
     return load_config(
-        config_path=args.config,
+        config_path=_resolve_config_path(args),
         cli_overrides=cli_overrides or None,
     )
 
@@ -188,7 +200,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     if args.print_config:
-        source = f"YAML: {args.config}" if args.config else "代码默认值"
+        resolved_config_path = _resolve_config_path(args)
+        source = f"YAML: {resolved_config_path}" if resolved_config_path else "代码默认值"
         print(summarize_config(config, video_path=args.video, source=source))
         return 0
 
@@ -231,3 +244,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if storage is not None:
         print(f"完成。输出目录: {storage.run_dir}")
     return 0
+
+
+def entrypoint() -> None:
+    """Console-script entry point that loads environment variables from .env."""
+    load_dotenv()
+    raise SystemExit(main())

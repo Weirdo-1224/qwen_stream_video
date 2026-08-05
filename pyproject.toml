@@ -26,7 +26,7 @@ dev = [
 ]
 
 [project.scripts]
-qwen-stream-video = "qwen_stream_video.cli:main"
+qwen-stream-video = "qwen_stream_video.cli:entrypoint"
 
 [tool.setuptools.packages.find]
 where = ["src"]

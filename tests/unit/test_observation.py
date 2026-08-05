@@ -170,3 +170,23 @@ def test_batch_does_not_accept_observations_list() -> None:
             window=_valid_window_observation(),
             observations=[{}],  # type: ignore[call-arg]
         )
+
+
+def test_entity_appearance_accepts_non_string_values() -> None:
+    """Appearance values may be lists, booleans, numbers, or strings."""
+    entity = EntityObservation(
+        local_id="E1",
+        entity_type=EntityType.PERSON,
+        name="operator",
+        confidence=0.9,
+        appearance={
+            "colors": ["red", "black"],
+            "glasses": True,
+            "count": 2,
+            "role": "operator",
+        },
+        evidence_frames=[0],
+    )
+    assert entity.appearance["colors"] == ["red", "black"]
+    assert entity.appearance["glasses"] is True
+    assert entity.appearance["count"] == 2
