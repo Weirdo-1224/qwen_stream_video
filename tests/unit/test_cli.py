@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
 import pytest
 
-from qwen_stream_video.cli import main
+from qwen_stream_video.cli import _build_client, main
+from qwen_stream_video.config import ModelConfig
 
 
 def _make_test_video(path: Path, duration: float = 2.0, fps: float = 5.0) -> Path:
@@ -241,3 +243,45 @@ video_metadata:
     assert "视频名称: 配置视频名" in captured.out
     assert "视频类别: 配置类别" in captured.out
     assert "任务背景: 配置背景" in captured.out
+
+
+def test_build_client_uses_local_transformers_for_local_provider() -> None:
+    class FakeConfig:
+        model = ModelConfig(
+            provider="local_transformers",
+            name="Qwen3-VL-8B-Instruct",
+            local_model_path="/home/Datasets/Hf_model/Qwen3-VL-8B-Instruct",
+        )
+
+    class FakeArgs:
+        dry_run = False
+        validate_only = False
+
+    with patch(
+        "qwen_stream_video.cli.LocalTransformersClient"
+    ) as mock_local_client:
+        mock_local_client.return_value = "local-client-instance"
+        client = _build_client(FakeArgs(), FakeConfig())
+
+    assert client == "local-client-instance"
+    mock_local_client.assert_called_once_with(FakeConfig.model)
+
+
+def test_build_client_uses_qwen_client_for_dashscope_provider() -> None:
+    class FakeConfig:
+        model = ModelConfig(
+            provider="dashscope",
+            name="qwen3-vl-plus",
+            api_key="sk-test",
+        )
+
+    class FakeArgs:
+        dry_run = False
+        validate_only = False
+
+    with patch("qwen_stream_video.cli.QwenClient") as mock_qwen_client:
+        mock_qwen_client.return_value = "qwen-client-instance"
+        client = _build_client(FakeArgs(), FakeConfig())
+
+    assert client == "qwen-client-instance"
+    mock_qwen_client.assert_called_once_with(FakeConfig.model)

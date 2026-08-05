@@ -13,7 +13,13 @@ from dotenv import load_dotenv
 
 from .config import load_config, summarize_config
 from .exceptions import ConfigurationError, VideoOpenError
-from .inference import FakeQwenClient, PromptBuilder, QwenClient, ResponseParser
+from .inference import (
+    FakeQwenClient,
+    LocalTransformersClient,
+    PromptBuilder,
+    QwenClient,
+    ResponseParser,
+)
 from .pipeline import StreamingVideoPipeline
 
 logger = logging.getLogger(__name__)
@@ -192,6 +198,8 @@ def _build_client(args: argparse.Namespace, config: Any) -> Any:
     """Create a real or fake inference client depending on the run mode."""
     if args.dry_run or args.validate_only:
         return FakeQwenClient(response_text=DEFAULT_FAKE_RESPONSE)
+    if config.model.provider == "local_transformers":
+        return LocalTransformersClient(config.model)
     if not config.model.api_key:
         print(
             "错误: 未配置 API Key。请设置 DASHSCOPE_API_KEY 环境变量或在配置中提供 model.api_key。",
