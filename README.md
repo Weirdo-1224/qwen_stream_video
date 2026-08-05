@@ -67,6 +67,39 @@ $env:QWEN_MODEL="qwen3-vl-plus"
 
 或在 `config.yaml` 中直接提供 `model.api_key`（请勿提交到版本控制）。
 
+## 本地模型部署（可选）
+
+本项目也支持使用本地 `Qwen3-VL-8B-Instruct` 模型替代 DashScope API。
+
+### 1. 安装本地推理依赖
+
+```bash
+pip install -e ".[local]"
+```
+
+### 2. 修改配置
+
+在 `config.yaml` 中切换 provider：
+
+```yaml
+model:
+  provider: local_transformers
+  name: Qwen3-VL-8B-Instruct
+  local_model_path: /home/Datasets/Hf_model/Qwen3-VL-8B-Instruct
+  device: auto
+  torch_dtype: bfloat16
+```
+
+注意：原目录 `/home/Datasets/Hf_model/Qwen3-8B` 是纯文本模型，不能读图；本地视觉模型请使用 `Qwen3-VL-8B-Instruct`。
+
+### 3. 运行
+
+```bash
+python run.py --video videos/demo.mp4
+```
+
+本地模型首次加载会消耗一定时间，请确保有足够显存（BF16 约 16–20 GB）。
+
 ## 使用
 
 ### 1. 查看配置
