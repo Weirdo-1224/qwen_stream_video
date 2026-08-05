@@ -220,6 +220,35 @@ video_metadata:
     assert config.video_context.task_background == "training"
 
 
+def test_local_transformers_provider_requires_model_path(tmp_path: Path) -> None:
+    path = _write_yaml(
+        tmp_path,
+        """
+model:
+  provider: local_transformers
+  local_model_path: ""
+""",
+    )
+    with pytest.raises(ConfigurationError):
+        load_config(config_path=path)
+
+
+def test_local_transformers_provider_accepts_valid_path() -> None:
+    config = AppConfig.model_validate(
+        {
+            "model": {
+                "provider": "local_transformers",
+                "local_model_path": "/home/Datasets/Hf_model/Qwen3-VL-8B-Instruct",
+                "device": "auto",
+                "torch_dtype": "bfloat16",
+            }
+        }
+    )
+    assert config.model.provider == "local_transformers"
+    assert config.model.local_model_path == "/home/Datasets/Hf_model/Qwen3-VL-8B-Instruct"
+    assert config.model.api_key is None
+
+
 def test_unknown_yaml_keys_are_ignored(tmp_path: Path) -> None:
     path = _write_yaml(tmp_path, "unknown_section:\n  value: demo\n")
     config = load_config(config_path=path)

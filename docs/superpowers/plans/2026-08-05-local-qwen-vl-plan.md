@@ -41,16 +41,17 @@
 from pathlib import Path
 
 
-def test_local_transformers_provider_requires_model_path() -> None:
+def test_local_transformers_provider_requires_model_path(tmp_path: Path) -> None:
+    path = _write_yaml(
+        tmp_path,
+        """
+model:
+  provider: local_transformers
+  local_model_path: ""
+""",
+    )
     with pytest.raises(ConfigurationError):
-        AppConfig.model_validate(
-            {
-                "model": {
-                    "provider": "local_transformers",
-                    "local_model_path": "",
-                }
-            }
-        )
+        load_config(config_path=path)
 
 
 def test_local_transformers_provider_accepts_valid_path() -> None:

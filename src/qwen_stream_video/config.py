@@ -19,10 +19,17 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from .exceptions import ConfigurationError
 
@@ -71,7 +78,7 @@ class ModelConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    provider: str = Field(default="dashscope", min_length=1)
+    provider: Literal["dashscope", "local_transformers"] = Field(default="dashscope")
     name: str = Field(default="qwen3-vl-plus", min_length=1)
     api_key: str | None = Field(default=None)
     base_url: str | None = Field(default=None)
@@ -80,6 +87,23 @@ class ModelConfig(BaseModel):
     timeout_seconds: float = Field(default=120.0, gt=0)
     network_retries: int = Field(default=2, ge=0)
     source: str = Field(default="default", min_length=1)
+
+    # Local-only settings
+    local_model_path: str | None = Field(default=None, min_length=1)
+    device: Literal["auto", "cuda", "cpu"] = Field(default="auto")
+    torch_dtype: Literal["bfloat16", "float16", "float32"] = Field(default="bfloat16")
+    load_in_8bit: bool = False
+    load_in_4bit: bool = False
+    max_model_len: int | None = Field(default=None, ge=1)
+    trust_remote_code: bool = True
+
+    @model_validator(mode="after")
+    def _check_local_model_path(self) -> ModelConfig:
+        if self.provider == "local_transformers" and not self.local_model_path:
+            raise ValueError(
+                "local_model_path is required when provider is local_transformers"
+            )
+        return self
 
 
 class ObservationConfig(BaseModel):
