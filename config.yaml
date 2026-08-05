@@ -10,15 +10,15 @@ video:
 sampling:
   sample_fps: 1.0
   min_frames: 4
-  max_frames: 12
-  max_image_side: 768
+  max_frames: 6
+  max_image_side: 512
   jpeg_quality: 80
 
 model:
   provider: dashscope
   name: qwen3-vl-plus
   temperature: 0
-  max_tokens: 4000
+  max_tokens: 3000
   timeout_seconds: 120
   network_retries: 2
 
