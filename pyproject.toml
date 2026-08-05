@@ -24,6 +24,15 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.6",
 ]
+local = [
+    "torch>=2.0",
+    "transformers>=4.57.0",
+    "qwen_vl_utils",
+    "accelerate",
+    "sentencepiece",
+    "protobuf",
+    "pillow",
+]
 
 [project.scripts]
 qwen-stream-video = "qwen_stream_video.cli:entrypoint"
