@@ -16,10 +16,21 @@ sampling:
 model:
   provider: dashscope
   name: qwen3-vl-plus
+  api_key: null
+  base_url: null
   temperature: 0
   max_tokens: 1200
   timeout_seconds: 120
   network_retries: 2
+
+  # 本地模型参数，仅当 provider == local_transformers 时生效
+  local_model_path: /home/Datasets/Hf_model/Qwen3-VL-8B-Instruct
+  device: auto          # auto | cuda | cpu
+  torch_dtype: bfloat16 # bfloat16 | float16 | float32
+  load_in_8bit: false
+  load_in_4bit: false
+  max_model_len: 32768
+  trust_remote_code: true
 
 observation:
   schema_version: "1.0"
