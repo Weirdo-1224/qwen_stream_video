@@ -66,7 +66,7 @@ class ActionObservation(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     local_id: str = Field(min_length=1)
-    actor_local_id: str = Field(min_length=1)
+    actor_local_id: str | None = None
     action_type: str = Field(min_length=1)
     target_local_id: str | None = None
     tool_local_id: str | None = None

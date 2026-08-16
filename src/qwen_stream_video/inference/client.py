@@ -28,7 +28,13 @@ from ..exceptions import InferenceNetworkError, InferenceRateLimitError, Inferen
 try:
     from PIL import Image
     from qwen_vl_utils import process_vision_info
-    from transformers import AutoModelForVision2Seq, AutoProcessor
+    from transformers import AutoProcessor
+
+    try:
+        # transformers >= 5.0 renamed AutoModelForVision2Seq to AutoModelForImageTextToText
+        from transformers import AutoModelForImageTextToText as AutoModelForVision2Seq
+    except ImportError:
+        from transformers import AutoModelForVision2Seq
 
     _HAS_LOCAL_DEPS = True
 except ImportError:  # pragma: no cover - optional local dependencies
@@ -205,17 +211,25 @@ class LocalTransformersClient:
         torch_dtype = self._torch_dtype()
         device_map = self._device_map()
 
+        model_kwargs: dict[str, Any] = {
+            "torch_dtype": torch_dtype,
+            "device_map": device_map,
+            "trust_remote_code": self.config.trust_remote_code,
+        }
+        # Only pass quantization flags when enabled; some local model classes
+        # (e.g. Qwen3-VL) do not accept them as ``False``.
+        if self.config.load_in_8bit:
+            model_kwargs["load_in_8bit"] = True
+        if self.config.load_in_4bit:
+            model_kwargs["load_in_4bit"] = True
+
         self._processor = AutoProcessor.from_pretrained(
             model_path,
             trust_remote_code=self.config.trust_remote_code,
         )
         self._model = AutoModelForVision2Seq.from_pretrained(
             model_path,
-            torch_dtype=torch_dtype,
-            device_map=device_map,
-            trust_remote_code=self.config.trust_remote_code,
-            load_in_8bit=self.config.load_in_8bit,
-            load_in_4bit=self.config.load_in_4bit,
+            **model_kwargs,
         )
 
     def _torch_dtype(self) -> Any:

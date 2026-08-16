@@ -15,8 +15,8 @@ sampling:
   jpeg_quality: 80
 
 model:
-  provider: dashscope
-  name: qwen3-vl-plus
+  provider: local_transformers
+  name: Qwen3-VL-8B-Instruct
   api_key: null
   base_url: null
   temperature: 0

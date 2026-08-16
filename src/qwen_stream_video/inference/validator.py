@@ -152,7 +152,10 @@ class ObservationSemanticValidator:
     ) -> None:
         """Ensure every action and attribute references existing entities."""
         for action in batch.actions:
-            if action.actor_local_id not in entity_ids:
+            if (
+                action.actor_local_id is not None
+                and action.actor_local_id not in entity_ids
+            ):
                 raise ModelOutputSemanticError(
                     f"Action {action.local_id} references missing actor "
                     f"{action.actor_local_id} in window {batch.window.global_index}"
