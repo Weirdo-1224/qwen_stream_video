@@ -12,7 +12,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from .config import load_config, summarize_config
-from .exceptions import ConfigurationError, VideoOpenError
+from .exceptions import ConfigurationError, ObservationReplayError, VideoOpenError
 from .inference import (
     FakeQwenClient,
     LocalTransformersClient,
@@ -21,22 +21,25 @@ from .inference import (
     ResponseParser,
 )
 from .pipeline import StreamingVideoPipeline
+from .state.replay import ObservationReplay
 
 logger = logging.getLogger(__name__)
 
 
 DEFAULT_FAKE_RESPONSE = """{
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "window": {
     "global_index": 0,
     "start_seconds": 0.0,
+    "commit_start_seconds": 0.0,
     "end_seconds": 1.0
   },
   "summary": "No observations in this window.",
   "scene": {
     "camera_change": false,
     "view_type": "unknown",
-    "visibility": "unknown",
+    "scene_visibility": "unknown",
+    "target_visibility": "unknown",
     "description": "A test scene."
   },
   "entities": [],
@@ -135,8 +138,41 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--no-state",
+        dest="state_disabled",
         action="store_true",
-        help="Do not carry the previous window summary into the next prompt.",
+        default=False,
+        help="Disable the State Engine and state outputs.",
+    )
+    parser.add_argument(
+        "--state",
+        dest="state_enabled",
+        action="store_true",
+        default=None,
+        help="Enable the State Engine.",
+    )
+    parser.add_argument(
+        "--warmup-windows",
+        type=int,
+        default=None,
+        help="Number of preceding windows used to warm up state.",
+    )
+    parser.add_argument(
+        "--snapshot-interval",
+        type=int,
+        default=None,
+        help="Override state snapshot interval in windows.",
+    )
+    parser.add_argument(
+        "--context-policy",
+        choices=["visual_only", "weak_context", "task_conditioned"],
+        default=None,
+        help="Context policy sent to the observation model.",
+    )
+    parser.add_argument(
+        "--replay-observations",
+        type=Path,
+        default=None,
+        help="Replay an existing observations.jsonl without calling a model.",
     )
     parser.add_argument(
         "--save-frames",
@@ -172,8 +208,17 @@ def _build_config(args: argparse.Namespace) -> Any:
     cli_overrides: dict[str, Any] = {}
     if args.realtime:
         cli_overrides["runtime.realtime"] = True
-    if args.no_state:
+    if args.state_disabled:
         cli_overrides["runtime.carry_previous_state"] = False
+        cli_overrides["state.enabled"] = False
+    if args.state_enabled:
+        cli_overrides["state.enabled"] = True
+    if args.warmup_windows is not None:
+        cli_overrides["video.warmup_windows"] = args.warmup_windows
+    if args.snapshot_interval is not None:
+        cli_overrides["state.snapshot_interval_windows"] = args.snapshot_interval
+    if args.context_policy is not None:
+        cli_overrides["observation.context_policy"] = args.context_policy
     if args.save_frames:
         cli_overrides["runtime.save_sampled_frames"] = True
         cli_overrides["storage.save_sampled_frames"] = True
@@ -237,6 +282,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(summarize_config(config, video_path=args.video, source=source))
         return 0
 
+    if args.replay_observations is not None:
+        if args.video is not None:
+            print("错误: --replay-observations 与 --video 不能同时使用。", file=sys.stderr)
+            return 1
+        replay_output = Path(args.output_dir) if args.output_dir else Path(config.storage.output_root) / "replay_run"
+        suffix = 1
+        while replay_output.exists():
+            replay_output = replay_output.with_name(f"{replay_output.name}_{suffix}")
+            suffix += 1
+        try:
+            output = ObservationReplay(config).replay(
+                args.replay_observations, output_dir=replay_output
+            )
+        except ObservationReplayError as exc:
+            print(f"Replay 错误: {exc}", file=sys.stderr)
+            return 1
+        print(f"Replay 完成。输出目录: {output}")
+        return 0
+
     if not args.video:
         print("错误: 必须提供 --video 参数。", file=sys.stderr)
         return 1
@@ -253,7 +317,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         config,
         args.video,
         client=client,
-        prompt_builder=PromptBuilder(),
+        prompt_builder=PromptBuilder(context_policy=config.observation.context_policy),
         parser=ResponseParser(),
         video_context=_build_video_context(config),
     )
@@ -268,6 +332,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_windows=args.max_windows,
             dry_run=args.dry_run,
             validate_only=args.validate_only,
+            state_enabled=None if args.state_enabled is None and not args.state_disabled else bool(args.state_enabled),
+            warmup_windows=args.warmup_windows,
         )
     except VideoOpenError as exc:
         print(f"错误: {exc}", file=sys.stderr)

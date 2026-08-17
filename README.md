@@ -1,265 +1,132 @@
-# Qwen 本地视频滑动窗口流式分析
+# Qwen Stream Video：Stage 2 State Engine
 
-将本地视频按时间切成因果滑动窗口，每个窗口均匀抽帧后调用千问视觉 API，输出逐窗口结构化 JSONL 观察结果。
+项目按本地视频的因果滑动窗口运行。模型只输出当前窗口的局部视觉事实；程序侧再以确定性代码维护场景、实体、动作和属性状态。
 
-## 核心保证
-
-- 分析窗口 `[start, end)` 时，程序只采样时间严格小于 `end` 的帧，模型无法看到未来窗口。
-- 默认快速离线运行；添加 `--realtime` 后，会等到视频逻辑时间到达窗口终点再发起请求。
-- 单窗口失败记录到 `errors.jsonl` 后继续处理，不伪造成功观察结果。
-- 每次运行生成唯一输出目录，不覆盖历史结果。
-
-## 项目结构
+## 架构边界
 
 ```text
-qwen_stream_video/
-├── run.py                    # 兼容入口，调用 qwen_stream_video.cli.main
-├── config.yaml               # 默认配置
-├── pyproject.toml
-├── requirements.txt
-├── .env.example              # 环境变量示例
-├── prompts/                  # 保留的提示词模板文件
-├── videos/                   # 输入视频目录
-├── outputs/                  # 输出目录
-├── src/qwen_stream_video/
-│   ├── cli.py                # 命令行入口
-│   ├── pipeline.py           # StreamingVideoPipeline
-│   ├── config.py             # Pydantic 配置模型
-│   ├── video/                # 元数据、窗口、抽帧、编码
-│   ├── inference/            # Qwen 客户端、提示词、解析、语义校验
-│   ├── domain/               # Observation Schema
-│   └── storage/              # RunStorage 运行产物存储
-└── tests/
+视频帧
+  -> Observation Generator（Qwen / Fake client）
+  -> Schema 2.0 + 词表规范化
+  -> SceneTracker
+  -> EntityResolver / EntityRegistry
+  -> ActionTracker
+  -> TransitionEngine
+  -> StateReducer（原子提交）
+  -> events / deltas / snapshots / final_state
 ```
 
-## 安装
+Observation 不包含正式 `global_entity_id`、动作生命周期或完整 GlobalState。Global Entity ID 只在一次运行内确定，不代表跨视频的永久真实身份。
 
-Python 3.10+。
+## 安装与运行
 
 ```bash
-python -m venv .venv
-
-# Linux/macOS
-source .venv/bin/activate
-
-# Windows PowerShell
-.venv\Scripts\Activate.ps1
-
 pip install -e .
-pip install -e ".[dev]"  # 开发依赖
+pip install -e ".[dev]"
+
+python run.py --video videos/demo.mp4 --config configs/base.yaml
+qwen-stream-video --video videos/demo.mp4 --config configs/base.yaml
 ```
 
-## 配置 API
-
-设置环境变量（推荐）：
-
-```bash
-# Linux/macOS
-export DASHSCOPE_API_KEY=sk-xxxx
-export DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-export QWEN_MODEL=qwen3-vl-plus
-
-# Windows PowerShell
-$env:DASHSCOPE_API_KEY="sk-xxxx"
-$env:DASHSCOPE_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
-$env:QWEN_MODEL="qwen3-vl-plus"
-```
-
-或在 `config.yaml` 中直接提供 `model.api_key`（请勿提交到版本控制）。
-
-## 本地模型部署（可选）
-
-本项目也支持使用本地 `Qwen3-VL-8B-Instruct` 模型替代 DashScope API。
-
-### 1. 安装本地推理依赖
-
-```bash
-pip install -e ".[local]"
-```
-
-### 2. 修改配置
-
-在 `config.yaml` 中切换 provider：
-
-```yaml
-model:
-  provider: local_transformers
-  name: Qwen3-VL-8B-Instruct
-  local_model_path: /home/Datasets/Hf_model/Qwen3-VL-8B-Instruct
-  device: auto
-  torch_dtype: bfloat16
-```
-
-注意：原目录 `/home/Datasets/Hf_model/Qwen3-8B` 是纯文本模型，不能读图；本地视觉模型请使用 `Qwen3-VL-8B-Instruct`。
-
-### 3. 运行
-
-```bash
-python run.py --video videos/demo.mp4
-```
-
-本地模型首次加载会消耗一定时间，请确保有足够显存（BF16 约 16–20 GB）。
-
-## 使用
-
-### 1. 查看配置
-
-```bash
-python run.py --video videos/demo.mp4 --print-config
-```
-
-### 2. 检查窗口与预估帧（不调用模型）
+离线检查和测试：
 
 ```bash
 python run.py --video videos/demo.mp4 --validate-only
-```
-
-### 3. 无模型抽帧测试
-
-```bash
 python run.py --video videos/demo.mp4 --dry-run --max-windows 3
+python -m pytest -q
+ruff check .
 ```
 
-### 4. 处理完整视频
+`--state` 启用状态维护，`--no-state` 只生成局部 Observation；`--warmup-windows`、`--snapshot-interval` 和 `--context-policy` 覆盖 YAML 配置。默认 `context_policy=visual_only`，不会把视频文件名、故障名称或具体回路名称发送给模型。
 
-```bash
-python run.py --video videos/demo.mp4
-```
+## Observation Schema 2.0
 
-### 5. 按真实视频时间等待
-
-```bash
-python run.py --video videos/demo.mp4 --realtime
-```
-
-### 6. 保存采样帧
-
-```bash
-python run.py --video videos/demo.mp4 --dry-run --save-frames --max-windows 3
-```
-
-### 7. 关闭上一窗口状态传递
-
-```bash
-python run.py --video videos/demo.mp4 --no-state
-```
-
-### 8. 限制窗口范围
-
-```bash
-python run.py --video videos/demo.mp4 --max-windows 5 --start-time 10 --end-time 60
-```
-
-## 命令行参数
-
-```text
---config PATH            YAML 配置文件路径
---video PATH             本地视频路径（除 --print-config 外均为必需）
---output-dir DIR         输出根目录（覆盖 config.yaml）
---start-time SECONDS     忽略结束时间早于该值的窗口
---end-time SECONDS       忽略开始时间晚于或等于该值的窗口
---start-window INDEX     忽略全局序号小于该值的窗口
---end-window INDEX       忽略全局序号大于该值的窗口
---max-windows N          最多处理 N 个窗口
---realtime               按视频逻辑时间等待
---save-frames            保存本次运行的采样帧到 sampled_frames/
---dry-run                抽帧并构建提示词，但不调用模型
---validate-only          检查视频并报告窗口，不调用模型
---no-state               不将上一窗口摘要传入下一窗口提示词
---print-config           打印解析后的配置并退出
---verbose, -v            启用调试日志
-```
-
-## 默认参数
-
-```yaml
-video:
-  window_seconds: 6.0
-  stride_seconds: 3.0
-
-sampling:
-  sample_fps: 1.0
-  min_frames: 4
-  max_frames: 12
-  max_image_side: 768
-  jpeg_quality: 80
-```
-
-窗口顺序示例：
-
-```text
-0-6 秒
-3-9 秒
-6-12 秒
-9-15 秒
-```
-
-每次请求只传当前窗口的 Base64 JPEG 图像列表和可选的上一窗口摘要，不传完整历史视频。
-
-## 输出
-
-每次运行会生成：
-
-```text
-outputs/<YYYYMMDD_HHMMSS_experiment_hash>/
-├── run_meta.json
-├── resolved_config.yaml
-├── windows.jsonl
-├── observations.jsonl
-├── api_metrics.jsonl
-├── errors.jsonl
-├── raw_responses/
-│   └── window_0000_0000.txt
-└── sampled_frames/         # when --save-frames or storage.save_sampled_frames=true
-    └── window_0000_0000/
-        └── frame_000_0.000.jpg
-```
-
-- `run_meta.json`：运行元数据、视频 SHA256、最终模型来源、提示词哈希、最终统计。
-- `resolved_config.yaml`：解析后的配置，API Key 已脱敏。
-- `windows.jsonl`：所有选中的窗口。
-- `observations.jsonl`：仅包含通过 Schema 和语义校验的观察结果。
-- `api_metrics.jsonl`：每个窗口的 API 请求指标。
-- `errors.jsonl`：失败的窗口及其错误信息，关联到原始响应路径。
-
-`observations.jsonl` 每行对应一个窗口：
+窗口包含 `[start, end)` 和程序计算的 `commit_start_seconds`：
 
 ```json
 {
-  "schema_version": "1.0",
-  "window_run_index": 0,
-  "window_global_index": 0,
-  "window_start_seconds": 0.0,
-  "window_end_seconds": 6.0,
+  "schema_version": "2.0",
+  "window": {
+    "global_index": 3,
+    "start_seconds": 9.0,
+    "commit_start_seconds": 12.0,
+    "end_seconds": 15.0
+  },
   "scene": {
-    "description": "工作人员在开关柜前操作门锁。",
-    "viewpoint": "front"
+    "camera_change": false,
+    "view_type": "medium",
+    "scene_visibility": "clear",
+    "target_visibility": "clear",
+    "continuity_hint": "continuous"
   },
   "entities": [],
   "actions": [],
-  "uncertainties": [],
-  "summary": "工作人员在开关柜前操作门锁。"
+  "attribute_observations": [],
+  "relations": [],
+  "uncertainties": []
 }
 ```
 
-## 修改分析任务
+`candidate_global_id` 只是 ContextBuilder 给出的低权重提示。动作 OOV 会变为 `action_type=other` 并保留 `raw_action_type`；视觉无法判断仍使用 `unknown`。属性使用 canonical key，例如 `door.state` 和 `indicator.energy.lit`，同时保留 raw 字段。
 
-- 修改窗口参数：`config.yaml` 的 `video` 和 `sampling` 部分。
-- 修改流式分析规则：`src/qwen_stream_video/inference/prompts.py` 中的 `DEFAULT_SYSTEM_PROMPT`。
-- 修改每窗口动态信息：`src/qwen_stream_video/inference/prompts.py` 中的 `DEFAULT_USER_PROMPT_TEMPLATE`。
-- 修改视频名称、类别和背景：`config.yaml` 的 `video_metadata` 部分。
+## Context / Commit 与 State Engine
 
-## 开发与测试
+默认 6 秒窗口、3 秒步长的提交范围是 `[0,6)`、`[6,9)`、`[9,12)`。重叠部分可以用于理解和延续已有事实，但不能创建新的动作或属性转移。非零窗口运行可通过 warmup 建立上下文；缺少前置窗口时 `run_meta.json` 会标记 `cold_start`。
 
-```bash
-.venv/Scripts/python -m pytest tests/ -q
-.venv/Scripts/python -m ruff check .
+EntityRegistry 分配 `person_0001`、`device_0001` 等运行内 ID，模糊匹配使用 `temp_*`，不会因特写删除历史实体。ActionTracker 维护 `started → ongoing → possible_ended → ended`，instant 动作和镜头切换分别处理。TransitionEngine 将初始值、pending、冲突和正式 `before → after` 转移区分开；初次可见属性不会产生伪转移。
+
+## 状态输出
+
+启用状态后，运行目录包含：
+
+```text
+observations.jsonl                 # 模型局部观察，语义保持不变
+normalization_warnings.jsonl
+entity_resolutions.jsonl
+state_events.jsonl
+state_deltas.jsonl
+state_snapshots.jsonl
+state_errors.jsonl
+final_state.json
+artifacts/prompts/                 # 实际使用的 Prompt 正文
+artifacts/schemas/                 # Observation JSON Schema
+artifacts/vocabularies/            # 实际词表正文
 ```
 
-## 说明
+`final_state.json` 使用临时文件、flush/fsync 和原子 rename。状态事件、实体解析和属性转移都带窗口、证据样本及程序生成的 ID。
 
-- 千问 OpenAI 兼容接口支持以 `image_url` 传入按时间顺序排列的图像列表。
-- 本项目将本地帧编码为 `data:image/jpeg;base64,...` 后发送。
-- 模型输出在去 Markdown 代码块、提取 JSON、Pydantic Schema 校验和语义校验后才会写入 `observations.jsonl`。
-- API 失败、解析失败或校验失败的窗口会记录到 `errors.jsonl`，不会中断整个视频。
-- 建议先使用 `--validate-only` 或 `--dry-run --max-windows 3` 检查窗口、抽帧与提示词，再调用完整流程。
+## Observation Replay
+
+Replay 不调用 Qwen API：
+
+```bash
+qwen-stream-video \
+  --replay-observations outputs/<run_id>/observations.jsonl \
+  --config configs/base.yaml \
+  --output-dir outputs/replay_run
+```
+
+Replay 支持合法 Schema 1.0 和 2.0。Schema 1.0 通过 `ObservationV1Adapter` 迁移字段，不伪造 candidate ID 或证据。相同输入、配置和窗口序列会得到相同的 `state_events.jsonl` 与 `final_state.json`。
+
+## 质量分析与回归
+
+```bash
+python scripts/evaluate_state_run.py outputs/<run_id>
+python scripts/evaluate_state_run.py outputs/<run_id> --json
+```
+
+脚本检查引用、ID 唯一性、快照与最终状态一致性、证据覆盖率、OOV、模糊实体、重复动作候选和无支持转移。Golden Fixture 位于 `tests/golden/`，不包含真实视频、Base64 或敏感信息。
+
+## 配置
+
+默认配置在 `configs/base.yaml`。配置模型严格禁止未知字段，优先级为：
+
+```text
+CLI > 环境变量 > YAML > 代码默认值
+```
+
+新增 State、SceneTracker、EntityRegistry、ActionTracker、TransitionEngine 和 Context 配置均会在启动前校验阈值关系。API Key 只能从 `.env` 或环境变量读取，不写入输出正文。
+
+## 当前限制
+
+当前仍是本地 MP4 的顺序模拟流式处理，不保证真实时间性能；尚未支持 RTSP、摄像头输入、并行推理、latest-window-only 调度、检测/ReID、违规判断、报警或多 Agent。

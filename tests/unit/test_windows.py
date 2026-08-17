@@ -71,7 +71,11 @@ def test_regular_windows(tmp_path: Path) -> None:
         global_index=0, run_index=0, start_seconds=0.0, end_seconds=6.0
     )
     assert windows[-1] == VideoWindow(
-        global_index=3, run_index=3, start_seconds=9.0, end_seconds=15.0
+        global_index=3,
+        run_index=3,
+        start_seconds=9.0,
+        commit_start_seconds=12.0,
+        end_seconds=15.0,
     )
 
 

@@ -1,0 +1,9 @@
+experiment:
+  name: observation_only_v2
+observation:
+  schema_version: "2.0"
+  context_policy: visual_only
+state:
+  enabled: false
+video:
+  warmup_windows: 0

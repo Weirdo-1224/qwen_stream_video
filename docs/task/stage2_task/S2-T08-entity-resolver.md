@@ -1,6 +1,6 @@
 # S2-T08：EntityResolver
 
-**状态：TODO**　**依赖：S2-T06、S2-T07**
+**状态：DONE**　**依赖：S2-T06、S2-T07**
 
 ## 目标
 

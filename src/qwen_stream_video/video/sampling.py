@@ -30,7 +30,7 @@ class SampledFrame(BaseModel):
     frame_index: int = Field(ge=0)
     timestamp_seconds: float = Field(ge=0)
     encoded_image: str | None = None
-    image: np.ndarray = Field(exclude=True)
+    image: np.ndarray | None = Field(default=None, exclude=True)
 
 
 _FrameInput = SampledFrame | np.ndarray

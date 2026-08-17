@@ -142,14 +142,14 @@ def test_build_user_prompt_contains_window_and_frame_info(
             }
         ],
     )
-    assert "test.mp4" in prompt
-    assert "breaker" in prompt
-    assert "training" in prompt
+    assert "test.mp4" not in prompt
+    assert "Context Interval" in prompt
+    assert "Commit Interval" in prompt
     assert "9.000" in prompt
     assert "15.000" in prompt
-    assert "4" in prompt
-    assert "9.000, 10.000, 11.000, 12.000" in prompt
-    assert "Previous summary." in prompt
+    assert "F3" in prompt
+    assert "F0 = 9.000" in prompt
+    assert "Previous summary." not in prompt
     assert "person_1" in prompt
     assert "A technician." in prompt
 
@@ -160,8 +160,8 @@ def test_build_user_prompt_without_previous_summary(
     sampled_frames: list[SampledFrame],
 ) -> None:
     prompt = prompt_builder.build_user_prompt(video_window, sampled_frames)
-    assert "无（当前窗口是首个窗口）" in prompt
-    assert "无（当前窗口是首个窗口或上一窗口无候选实体）" in prompt
+    assert "Schema 2.0" in prompt
+    assert "candidate_global_id" in prompt
 
 
 def test_parse_valid_json_returns_batch_and_warnings(
@@ -297,7 +297,7 @@ def test_parse_returns_warning_for_unknown_action(
     batch, warnings = response_parser.parse(raw, sampled_frames)
     assert len(warnings) == 1
     assert "mapped to 'unknown'" in warnings[0]
-    assert batch.actions[0].action_type == "unknown"
+    assert batch.actions[0].action_type == "dance"
 
 
 def test_parse_forbidden_eval_not_used(

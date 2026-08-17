@@ -11,7 +11,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | TODO |
+| 状态 | DONE |
 | 前置任务 | TASK-001 |
 | 目标 | 将窗口级局部 Observation 转换为身份稳定、动作连续、状态可确认、结果可重放的确定性 GlobalState。 |
 | 参考 | `docs/stage/stage2.md` |
@@ -43,24 +43,24 @@
 
 ## 实施清单
 
-- [ ] S2-T01：配置严格化与第一阶段明确问题修复。
-- [ ] S2-T02：Observation Schema 2.0。
-- [ ] S2-T03：动作和属性非破坏性归一化。
-- [ ] S2-T04：Context / Commit 双区间与 warmup。
-- [ ] S2-T05：GlobalState、StateEvent、StateDelta 和解析领域模型。
-- [ ] S2-T06：SceneTracker。
-- [ ] S2-T07：EntityRegistry。
-- [ ] S2-T08：EntityResolver。
-- [ ] S2-T09：ActionTracker。
-- [ ] S2-T10：TransitionEngine。
-- [ ] S2-T11：StateReducer。
-- [ ] S2-T12：ContextBuilder 与 Observation Prompt。
-- [ ] S2-T13：Pipeline 和 CLI 集成。
-- [ ] S2-T14：状态输出存储。
-- [ ] S2-T15：Observation Replay。
-- [ ] S2-T16：集成测试与 Golden Regression。
-- [ ] S2-T17：状态质量分析脚本。
-- [ ] S2-T18：README、全量回归和最终验收。
+- [x] S2-T01：配置严格化与第一阶段明确问题修复。
+- [x] S2-T02：Observation Schema 2.0。
+- [x] S2-T03：动作和属性非破坏性归一化。
+- [x] S2-T04：Context / Commit 双区间与 warmup。
+- [x] S2-T05：GlobalState、StateEvent、StateDelta 和解析领域模型。
+- [x] S2-T06：SceneTracker。
+- [x] S2-T07：EntityRegistry。
+- [x] S2-T08：EntityResolver。
+- [x] S2-T09：ActionTracker。
+- [x] S2-T10：TransitionEngine。
+- [x] S2-T11：StateReducer。
+- [x] S2-T12：ContextBuilder 与 Observation Prompt。
+- [x] S2-T13：Pipeline 和 CLI 集成。
+- [x] S2-T14：状态输出存储。
+- [x] S2-T15：Observation Replay。
+- [x] S2-T16：集成测试与 Golden Regression。
+- [x] S2-T17：状态质量分析脚本。
+- [x] S2-T18：README、全量回归和最终验收。
 
 ## 关键约束
 
@@ -75,23 +75,23 @@
 
 ## 验收标准
 
-- [ ] `pytest -q` 全部通过，测试不调用真实 API。
-- [ ] `ruff check .` 无错误。
-- [ ] 第一阶段命令仍可运行。
-- [ ] 默认 Observation Schema 为 2.0，并可适配 Replay Schema 1.0。
-- [ ] 重叠区间不会重复创建动作或属性转移。
-- [ ] 三人经过特写再返回全景时，全局 ID 不整体漂移。
-- [ ] 4 号柜和 5 号柜不会被错误合并为同一实体的属性变化。
-- [ ] 持续动作只有一个 GlobalAction ID，并具有完整生命周期。
-- [ ] 初始属性、新可见属性和正式状态转移被明确区分。
-- [ ] 状态事件、增量、快照和 final_state 可追踪、可解析、可恢复。
-- [ ] 相同输入重复 Replay 的 `state_events.jsonl` 与 `final_state.json` 哈希一致。
-- [ ] Golden Regression 精确比较实体映射、事件、动作 ID、状态转移和最终关键状态。
+- [x] `pytest -q` 全部通过，测试不调用真实 API。
+- [x] `ruff check .` 无错误。
+- [x] 第一阶段命令仍可运行。
+- [x] 默认 Observation Schema 为 2.0，并可适配 Replay Schema 1.0。
+- [x] 重叠区间不会重复创建动作或属性转移。
+- [x] 三人经过特写再返回全景时，全局 ID 不整体漂移。
+- [x] 4 号柜和 5 号柜不会被错误合并为同一实体的属性变化。
+- [x] 持续动作只有一个 GlobalAction ID，并具有完整生命周期。
+- [x] 初始属性、新可见属性和正式状态转移被明确区分。
+- [x] 状态事件、增量、快照和 final_state 可追踪、可解析、可恢复。
+- [x] 相同输入重复 Replay 的 `state_events.jsonl` 与 `final_state.json` 哈希一致。
+- [x] Golden Regression 精确比较实体映射、事件、动作 ID、状态转移和最终关键状态。
 
 ## 完成记录
 
-- 修改文件：
-- 验证命令与结果：
-- Golden Regression 结果：
-- 状态质量分析结果：
-- 已知限制：
+- 修改文件：配置、Observation/domain、normalizer、state、pipeline/CLI、storage、Replay、质量脚本、Golden 测试和 README。
+- 验证命令与结果：`pytest -q` 119 passed；`ruff check .` 通过。
+- Golden Regression 结果：脱敏 Golden Fixture 与集成测试通过。
+- 状态质量分析结果：Replay 产物结构检查通过，无 structural errors。
+- 已知限制：仍为本地 MP4 顺序处理，不支持 RTSP、并行推理、ReID、违规判断或多 Agent。

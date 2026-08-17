@@ -110,11 +110,16 @@ class QwenClient:
         for attempt in range(1, max_attempts + 1):
             start = time.perf_counter()
             try:
+                request_kwargs: dict[str, Any] = {
+                    "model": self.config.name,
+                    "messages": messages,
+                    "temperature": self.config.temperature,
+                    "max_tokens": self.config.max_tokens,
+                }
+                if self.config.structured_json:
+                    request_kwargs["response_format"] = {"type": "json_object"}
                 response = self._client.chat.completions.create(
-                    model=self.config.name,
-                    messages=messages,
-                    temperature=self.config.temperature,
-                    max_tokens=self.config.max_tokens,
+                    **request_kwargs,
                 )
                 latency_seconds = time.perf_counter() - start
                 raw_text = response.choices[0].message.content or ""

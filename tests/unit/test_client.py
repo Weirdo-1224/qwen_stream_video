@@ -105,7 +105,7 @@ def test_qwen_client_success(mock_openai: MagicMock, model_config: ModelConfig) 
     call_args = mock_client.chat.completions.create.call_args
     assert call_args.kwargs["model"] == "qwen3-vl-plus"
     assert call_args.kwargs["temperature"] == 0.0
-    assert call_args.kwargs["max_tokens"] == 1200
+    assert call_args.kwargs["max_tokens"] == 3000
     messages = call_args.kwargs["messages"]
     assert messages[0] == {"role": "system", "content": "system text"}
     assert messages[1]["role"] == "user"

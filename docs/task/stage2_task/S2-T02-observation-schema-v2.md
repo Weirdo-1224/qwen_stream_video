@@ -1,6 +1,6 @@
 # S2-T02：Observation Schema 2.0
 
-**状态：TODO**　**依赖：S2-T01**
+**状态：DONE**　**依赖：S2-T01**
 
 ## 目标
 

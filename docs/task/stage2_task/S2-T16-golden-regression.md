@@ -1,6 +1,6 @@
 # S2-T16：集成测试与 Golden Regression
 
-**状态：TODO**　**依赖：S2-T01 至 S2-T15**
+**状态：DONE**　**依赖：S2-T01 至 S2-T15**
 
 ## 目标
 

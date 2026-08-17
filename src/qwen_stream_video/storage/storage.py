@@ -243,6 +243,16 @@ class RunStorage:
             final_stats.update(stats)
         self._write_final_metadata(final_stats)
 
+    def update_run_meta(self, updates: dict[str, Any]) -> None:
+        """Merge deterministic run-scope metadata before finalization."""
+        if not self._metadata_path.exists():
+            return
+        with self._metadata_path.open("r", encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        metadata.update(updates)
+        with self._metadata_path.open("w", encoding="utf-8") as handle:
+            json.dump(metadata, handle, ensure_ascii=False, indent=2)
+
     def _write_config(self) -> None:
         """Write the resolved configuration with secrets redacted."""
         config_dict = self.config.model_dump()
@@ -283,6 +293,9 @@ class RunStorage:
             "model_name": model.name,
             "resolved_model": model.name,
             "model_source": model.source,
+            "observation_schema_version": self.config.observation.schema_version,
+            "state_schema_version": "2.0" if self.config.state.enabled else None,
+            "state_enabled": self.config.state.enabled,
             "config_sha256": _config_sha256(self.config),
             "system_prompt_sha256": system_prompt_sha256,
             "user_prompt_sha256": user_prompt_sha256,
@@ -342,6 +355,8 @@ class RunStorage:
         window_dir = self._frame_dir / f"window_{window.run_index:04d}_{window.global_index:04d}"
         window_dir.mkdir(exist_ok=True)
         for frame in sampled_frames:
+            if frame.image is None:
+                continue
             filename = f"frame_{frame.sample_index:03d}_{frame.timestamp_seconds:.3f}.jpg"
             path = window_dir / filename
             cv2.imwrite(str(path), frame.image)

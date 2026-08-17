@@ -1,11 +1,12 @@
 experiment:
-  name: incremental_observation_v1
+  name: incremental_state_v2
   seed: 42
 
 video:
   # 模型每次只看到最近 window_seconds 秒，绝不会读取 window_end 之后的帧。
   window_seconds: 6.0
   stride_seconds: 3.0
+  warmup_windows: 0
 
 sampling:
   sample_fps: 1.0
@@ -34,9 +35,11 @@ model:
   trust_remote_code: true
 
 observation:
-  schema_version: "1.0"
+  schema_version: "2.0"
   require_evidence_frames: true
   use_candidate_global_ids: true
+  allow_candidate_global_ids: true
+  context_policy: visual_only
 
 runtime:
   realtime: false
@@ -48,6 +51,50 @@ storage:
   output_root: outputs
   save_raw_responses: true
   save_sampled_frames: true
+  save_entity_resolutions: true
+  save_state_events: true
+  save_state_deltas: true
+  save_state_snapshots: true
+
+state:
+  enabled: true
+  snapshot_interval_windows: 10
+  fail_on_state_error: false
+
+scene_tracker:
+  enabled: true
+  camera_change_starts_new_scene: true
+  preserve_entities_across_scenes: true
+
+entity_registry:
+  confident_match_threshold: 0.78
+  ambiguous_match_threshold: 0.58
+  max_missing_windows: 10
+  temporary_entity_prefix: temp
+  candidate_hint_weight: 0.05
+  allow_delayed_merge: true
+  delayed_merge_support_windows: 2
+  ambiguous_margin: 0.08
+
+action_tracker:
+  continue_max_gap_windows: 1
+  end_missing_windows: 2
+  repeat_action_min_gap_seconds: 5.0
+  instant_actions: [press, switch, pick_up, put_down, hand_over, receive]
+
+transition_engine:
+  high_confidence_threshold: 0.85
+  medium_confidence_threshold: 0.60
+  confirm_support_windows: 2
+  max_pending_gap_windows: 1
+  require_action_support_for_transition: true
+
+context:
+  max_entities: 15
+  recent_window_count: 5
+  max_active_actions: 8
+  max_pending_attributes: 8
+  max_serialized_characters: 6000
 
 video_metadata:
   video_name: VS1断路器操动机构储能回路故障排查标准化作业

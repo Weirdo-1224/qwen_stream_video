@@ -43,3 +43,39 @@ class ModelOutputSchemaError(QwenStreamVideoError):
 
 class ModelOutputSemanticError(QwenStreamVideoError):
     """Raised when model output violates semantic constraints."""
+
+
+class StateEngineError(QwenStreamVideoError):
+    """Base class for deterministic global-state failures."""
+
+
+class SceneTrackingError(StateEngineError):
+    pass
+
+
+class EntityResolutionError(StateEngineError):
+    pass
+
+
+class EntityRegistryError(StateEngineError):
+    pass
+
+
+class ActionTrackingError(StateEngineError):
+    pass
+
+
+class TransitionError(StateEngineError):
+    pass
+
+
+class StateStorageError(StateEngineError):
+    pass
+
+
+class ObservationReplayError(StateEngineError):
+    pass
+
+
+class VocabularyNormalizationError(QwenStreamVideoError):
+    """Raised when a controlled vocabulary cannot be loaded."""

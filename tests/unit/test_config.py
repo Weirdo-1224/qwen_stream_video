@@ -31,13 +31,13 @@ def _write_yaml(tmp_path: Path, content: str) -> Path:
 
 def test_default_config_is_valid() -> None:
     config = load_config()
-    assert config.experiment.name == "incremental_observation_v1"
+    assert config.experiment.name == "incremental_state_v2"
     assert config.video.window_seconds == 6.0
     assert config.sampling.jpeg_quality == 80
     assert config.model.provider == "dashscope"
     assert config.model.name == "qwen3-vl-plus"
     assert config.model.source == "default"
-    assert config.observation.schema_version == "1.0"
+    assert config.observation.schema_version == "2.0"
     assert config.runtime.max_windows is None
     assert config.storage.output_root == "outputs"
 
@@ -97,9 +97,10 @@ storage:
         source="yaml",
     )
     assert config.observation == ObservationConfig(
-        schema_version="1.0",
+        schema_version="2.0",
         require_evidence_frames=False,
         use_candidate_global_ids=True,
+        allow_candidate_global_ids=True,
     )
     assert config.runtime == RuntimeConfig(
         realtime=True,
@@ -249,7 +250,7 @@ def test_local_transformers_provider_accepts_valid_path() -> None:
     assert config.model.api_key is None
 
 
-def test_unknown_yaml_keys_are_ignored(tmp_path: Path) -> None:
+def test_unknown_yaml_keys_fail_before_startup(tmp_path: Path) -> None:
     path = _write_yaml(tmp_path, "unknown_section:\n  value: demo\n")
-    config = load_config(config_path=path)
-    assert config.video.window_seconds == DEFAULTS.video.window_seconds
+    with pytest.raises(ConfigurationError):
+        load_config(config_path=path)

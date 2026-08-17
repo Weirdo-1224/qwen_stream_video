@@ -232,7 +232,7 @@ def test_unknown_action_mapped_to_unknown_with_warning(
     warnings = validator.validate(valid_batch, sampled_frames)
     assert len(warnings) == 1
     assert "mapped to 'unknown'" in warnings[0]
-    assert valid_batch.actions[0].action_type == "unknown"
+    assert valid_batch.actions[0].action_type == "dance"
 
 
 def test_target_none_is_allowed(

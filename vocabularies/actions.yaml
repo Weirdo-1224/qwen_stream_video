@@ -1,23 +1,33 @@
 actions:
-  - observe
-  - inspect
-  - approach
-  - leave
-  - hold
-  - pick_up
-  - place
-  - touch
-  - press
-  - rotate
-  - switch
-  - open
-  - close
-  - insert
-  - remove
-  - connect
-  - disconnect
-  - adjust
-  - measure
-  - record
-  - point
-  - unknown
+  observe: {family: perception, aliases: []}
+  inspect: {family: perception, aliases: [check, examine]}
+  approach: {family: movement, aliases: []}
+  leave: {family: movement, aliases: []}
+  hold: {family: contact, aliases: []}
+  pick_up: {family: object_transfer, aliases: [pickup, lift]}
+  put_down: {family: object_transfer, aliases: [putdown, set_down]}
+  place: {family: object_transfer, aliases: []}
+  hand_over: {family: object_transfer, aliases: [handover, pass, give]}
+  receive: {family: object_transfer, aliases: [take_from]}
+  carry: {family: object_transfer, aliases: []}
+  touch: {family: contact, aliases: []}
+  hover: {family: contact_proximity, aliases: [suspend_over]}
+  press: {family: control, aliases: []}
+  release: {family: control, aliases: []}
+  push: {family: object_motion, aliases: []}
+  pull: {family: object_motion, aliases: []}
+  point: {family: communication, aliases: []}
+  rotate: {family: object_motion, aliases: []}
+  switch: {family: control, aliases: []}
+  open: {family: state_change, aliases: []}
+  close: {family: state_change, aliases: []}
+  insert: {family: object_motion, aliases: []}
+  remove: {family: object_motion, aliases: []}
+  connect: {family: object_motion, aliases: []}
+  disconnect: {family: object_motion, aliases: []}
+  adjust: {family: control, aliases: []}
+  measure: {family: perception, aliases: []}
+  record: {family: communication, aliases: []}
+  operate: {family: control, aliases: []}
+  other: {family: other, aliases: []}
+  unknown: {family: unknown, aliases: []}

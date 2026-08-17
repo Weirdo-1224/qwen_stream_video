@@ -1,34 +1,17 @@
-请分析当前视频滑动窗口。
+请分析当前窗口中的局部视觉事实。
 
-视频名称：{video_name}
-视频类别：{video_category}
-已知任务背景：{task_background}
+当前窗口：global_index={window_global_index}
+Context Interval: [{window_start_seconds:.3f}, {commit_start_seconds:.3f}) 秒
+Commit Interval: [{commit_start_seconds:.3f}, {window_end_seconds:.3f}) 秒
+窗口类型：{window_type}；处理角色：{processing_role}
 
-当前窗口：
-- 窗口全局序号（global_index）：{window_global_index}
-- 开始时间：{window_start_seconds:.3f} 秒
-- 结束时间：{window_end_seconds:.3f} 秒
-- 窗口类型：{window_type}
+抽样帧（模型只能引用这些 sample_index）：
+{frame_lines}
 
-采样帧信息：
-- 采样帧数：{frame_count}
-- 等效采样帧率：{sample_fps:.3f} FPS
-- 各帧时间戳（秒）：{frame_timestamps}
+候选上下文（candidate_global_id 只能从这里选择）：
+{context_json}
 
-输入图像已经严格按照时间先后顺序排列，且不包含 {window_end_seconds:.3f} 秒之后的任何画面。
+动作词表摘要：observe, inspect, hand_over, receive, push, pull, hover, pick_up, put_down, press, release, open, close, operate, other, unknown
+属性使用 canonical attribute_key；视觉事实和任务条件解释必须分离。
 
-上一窗口摘要：
-{previous_summary}
-
-上一窗口候选实体：
-{previous_entities}
-
-要求：
-1. 只分析当前窗口，不总结完整视频，不预测未来。
-2. 结合上一窗口摘要区分动作的阶段（starting / ongoing / possibly_completed / instant / unknown）。
-3. 状态保持不变时，不得重复输出为新的变化。
-4. 证据不足时写入 uncertainties，不得用专业常识补全。
-5. `evidence_frames` 必须使用当前窗口提供的样本帧索引（从 0 开始），当前窗口共有 {frame_count} 帧，有效索引范围为 [0, {frame_count}-1]。
-6. 严格输出 System Prompt 规定的 JSON 对象，字段名必须与定义完全一致。
-7. 动作类型必须从限定词表中选择。
-8. 本窗口只输出一份 ObservationBatch，顶层不得包含 `observations` 数组。
+请返回 Schema 2.0 JSON：窗口时间由程序覆盖；当前窗口未看到的实体不表示消失；不确定时保留 unknown 和 uncertainty。{task_context}

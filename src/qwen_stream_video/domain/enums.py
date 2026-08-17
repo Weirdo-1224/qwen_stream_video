@@ -46,3 +46,45 @@ class ActionPhaseObservation(str, Enum):
     POSSIBLY_COMPLETED = "possibly_completed"
     INSTANT = "instant"
     UNKNOWN = "unknown"
+
+
+class VisibilityState(str, Enum):
+    VISIBLE = "visible"
+    PARTIAL = "partial"
+    OCCLUDED = "occluded"
+    NOT_VISIBLE = "not_visible"
+    UNKNOWN = "unknown"
+
+
+class EntityLifecycleStatus(str, Enum):
+    ACTIVE = "active"
+    TEMPORARILY_MISSING = "temporarily_missing"
+    INACTIVE = "inactive"
+    MERGED = "merged"
+
+
+class EntityResolutionStatus(str, Enum):
+    MATCHED = "matched"
+    CREATED = "created"
+    AMBIGUOUS = "ambiguous"
+    TEMPORARY = "temporary"
+    REJECTED_HINT = "rejected_hint"
+
+
+class ActionLifecycle(str, Enum):
+    CANDIDATE = "candidate"
+    STARTED = "started"
+    ONGOING = "ongoing"
+    POSSIBLE_ENDED = "possible_ended"
+    ENDED = "ended"
+    INSTANT = "instant"
+    UNCERTAIN = "uncertain"
+    INTERRUPTED = "interrupted"
+
+
+class AttributeConfirmationStatus(str, Enum):
+    OBSERVED = "observed"
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    CONFLICTED = "conflicted"
+    REJECTED = "rejected"

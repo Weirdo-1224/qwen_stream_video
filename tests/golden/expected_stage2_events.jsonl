@@ -1,0 +1,4 @@
+{"event_id":"event_000001","event_type":"scene_started","window_global_index":0,"scene_id":"scene_0001","reason":"first_observation_window"}
+{"event_id":"event_000002","event_type":"attribute_initialized","window_global_index":0,"entity_id":"device_0001","attribute_key":"door.state","after":"closed","reason":"initial_high_confidence_observation"}
+{"event_id":"event_000003","event_type":"action_started","window_global_index":1,"action_id":"action_000001","reason":"commit_evidence"}
+{"event_id":"event_000004","event_type":"attribute_transition","window_global_index":1,"entity_id":"device_0001","attribute_key":"door.state","before":"closed","after":"open","reason":"high_confidence_with_action_support"}

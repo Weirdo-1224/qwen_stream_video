@@ -1,6 +1,6 @@
 # S2-T07：EntityRegistry
 
-**状态：TODO**　**依赖：S2-T05、S2-T06**
+**状态：DONE**　**依赖：S2-T05、S2-T06**
 
 ## 目标
 

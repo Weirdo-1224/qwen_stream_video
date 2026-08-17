@@ -1,6 +1,37 @@
 attributes:
-  - state
-  - position
-  - value
-  - status
-  - count
+  door.state:
+    entity_types: [device, component]
+    values: [unknown, closed, partially_open, open]
+    aliases: [door_state, door_status, 柜门状态]
+    confirmation_policy: default
+    supporting_actions:
+      open: [open, pull, operate]
+      closed: [close, push, operate]
+  panel.cover.state:
+    entity_types: [device, component]
+    values: [unknown, closed, partially_open, open]
+    aliases: [cover_state, cover_status, panel_cover_state]
+    confirmation_policy: default
+    supporting_actions:
+      open: [open, pull, operate]
+      closed: [close, push, operate]
+  indicator.energy.lit:
+    entity_types: [device, component]
+    values: [unknown, on, off]
+    aliases: [indicator_state, light_state, indicator_lit]
+    confirmation_policy: default
+  indicator.energy.color:
+    entity_types: [device, component]
+    values: [unknown, red, green, yellow, white, blue]
+    aliases: [indicator_color, light_color]
+    confirmation_policy: single_high
+  switch.position:
+    entity_types: [device, component]
+    values: [unknown, on, off, work, test, intermediate]
+    aliases: [switch_state, switch_position]
+    confirmation_policy: default
+  holding.state:
+    entity_types: [tool, component, document]
+    values: [unknown, held, released]
+    aliases: [holding_state]
+    confirmation_policy: default

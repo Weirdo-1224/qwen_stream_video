@@ -1,6 +1,6 @@
 # S2-T10：TransitionEngine
 
-**状态：TODO**　**依赖：S2-T03、S2-T04、S2-T08、S2-T09**
+**状态：DONE**　**依赖：S2-T03、S2-T04、S2-T08、S2-T09**
 
 ## 目标
 

@@ -1,6 +1,6 @@
 # S2-T15：Observation Replay
 
-**状态：TODO**　**依赖：S2-T04、S2-T05、S2-T11、S2-T14**
+**状态：DONE**　**依赖：S2-T04、S2-T05、S2-T11、S2-T14**
 
 ## 目标
 

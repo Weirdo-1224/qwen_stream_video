@@ -44,10 +44,10 @@ class ObservationSemanticValidator:
         with self.vocab_path.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         actions = data.get("actions", [])
+        if isinstance(actions, dict):
+            return {str(a) for a in actions}
         if not isinstance(actions, list):
-            raise TypeError(
-                "Action vocabulary must contain a list under the 'actions' key"
-            )
+            raise TypeError("Action vocabulary must contain a list or mapping under 'actions'")
         return {str(a) for a in actions}
 
     def validate(
@@ -95,6 +95,7 @@ class ObservationSemanticValidator:
         batch.window = WindowObservation(
             global_index=window.global_index,
             start_seconds=window.start_seconds,
+            commit_start_seconds=window.commit_start_seconds,
             end_seconds=window.end_seconds,
         )
 
@@ -128,7 +129,10 @@ class ObservationSemanticValidator:
         warnings: list[str] = []
         seen: set[tuple[str, str]] = set()
         for attribute in batch.attribute_observations:
-            key = (attribute.entity_local_id, attribute.attribute)
+            key = (
+                attribute.entity_local_id,
+                attribute.attribute_key or attribute.attribute or "",
+            )
             if key in seen:
                 warnings.append(
                     f"Duplicate attribute observation {key[1]!r} for entity "
@@ -180,8 +184,20 @@ class ObservationSemanticValidator:
         for attribute in batch.attribute_observations:
             if attribute.entity_local_id not in entity_ids:
                 raise ModelOutputSemanticError(
-                    f"Attribute {attribute.attribute} references missing entity "
+                    f"Attribute {attribute.attribute_key or attribute.attribute} references missing entity "
                     f"{attribute.entity_local_id} in window {batch.window.global_index}"
+                )
+
+        for relation in batch.relations:
+            if relation.subject_local_id not in entity_ids:
+                raise ModelOutputSemanticError(
+                    f"Relation {relation.relation_type} references missing subject "
+                    f"{relation.subject_local_id} in window {batch.window.global_index}"
+                )
+            if relation.object_local_id not in entity_ids:
+                raise ModelOutputSemanticError(
+                    f"Relation {relation.relation_type} references missing object "
+                    f"{relation.object_local_id} in window {batch.window.global_index}"
                 )
 
     def _validate_evidence_frames(
@@ -212,6 +228,14 @@ class ObservationSemanticValidator:
                 uncertainty.description[:40],
                 batch,
             )
+        for relation in batch.relations:
+            self._check_and_clean_evidence_frames(
+                relation.evidence_frames,
+                frame_count,
+                "relation",
+                relation.relation_type,
+                batch,
+            )
 
     def _check_and_clean_evidence_frames(
         self,
@@ -232,15 +256,16 @@ class ObservationSemanticValidator:
         indices[:] = sorted(set(indices))
 
     def _validate_action_vocabulary(self, batch: ObservationBatch) -> list[str]:
-        """Map unknown action types to ``unknown`` and return warnings."""
+        """Report vocabulary issues without destroying the raw model value."""
         warnings: list[str] = []
         for action in batch.actions:
             if action.action_type not in self.allowed_actions:
                 original = action.action_type
-                action.action_type = "unknown"
+                if action.raw_action_type is None:
+                    action.raw_action_type = original
                 warnings.append(
                     f"Action {action.local_id} in window {batch.window.global_index} "
-                    f"has unknown action type '{original}'; mapped to 'unknown'. "
+                    f"has out-of-vocabulary action type '{original}'; mapped to 'unknown' is intentionally not performed. "
                     f"Description: {action.description or 'no description'}"
                 )
         return warnings

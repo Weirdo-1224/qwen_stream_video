@@ -1,6 +1,6 @@
 # S2-T09：ActionTracker
 
-**状态：TODO**　**依赖：S2-T04、S2-T05、S2-T08**
+**状态：DONE**　**依赖：S2-T04、S2-T05、S2-T08**
 
 ## 目标
 
