@@ -1,0 +1,230 @@
+{
+  "action_counter": 1,
+  "actions": {
+    "action_000001": {
+      "action_family": "state_change",
+      "action_id": "action_000001",
+      "action_type": "open",
+      "actor_id": "person_0001",
+      "confidence": 0.9,
+      "end_time_interval": null,
+      "end_window": null,
+      "evidence": [
+        {
+          "local_id": "A",
+          "run_id": "replay",
+          "sample_indices": [
+            1
+          ],
+          "timestamps_seconds": [
+            4.0
+          ],
+          "window_global_index": 1
+        }
+      ],
+      "last_observed_time": 4.0,
+      "last_observed_window": 1,
+      "lifecycle": "started",
+      "missing_window_count": 0,
+      "observed_windows": [
+        1
+      ],
+      "start_time_interval": {
+        "lower": 3.0,
+        "upper": 4.0
+      },
+      "start_window": 1,
+      "target_id": "device_0001",
+      "tool_id": null
+    }
+  },
+  "active_action_ids": [
+    "action_000001"
+  ],
+  "current_scene_id": "scene_0001",
+  "entities": {
+    "device_0001": {
+      "aliases": [],
+      "appearance_conflicts": {},
+      "appearance_signature": {},
+      "attributes": {
+        "door.state": {
+          "attribute_key": "door.state",
+          "confidence": 0.9,
+          "confirmed_window": 1,
+          "contradicting_observations": 0,
+          "evidence": [
+            {
+              "local_id": "D",
+              "run_id": "replay",
+              "sample_indices": [
+                1
+              ],
+              "timestamps_seconds": [
+                1.0
+              ],
+              "window_global_index": 0
+            },
+            {
+              "local_id": "D",
+              "run_id": "replay",
+              "sample_indices": [
+                1
+              ],
+              "timestamps_seconds": [
+                4.0
+              ],
+              "window_global_index": 1
+            }
+          ],
+          "first_observed_window": 0,
+          "last_observed_window": 1,
+          "pending_confidence": null,
+          "pending_support_windows": [],
+          "pending_value": null,
+          "previous_value": "closed",
+          "status": "confirmed",
+          "supporting_observations": 2,
+          "value": "open"
+        }
+      },
+      "canonical_name": "cabinet 4",
+      "confidence": 0.95,
+      "current_scene_id": "scene_0001",
+      "delayed_merge_support": {},
+      "entity_id": "device_0001",
+      "entity_type": "device",
+      "evidence": [
+        {
+          "local_id": "D",
+          "run_id": "replay",
+          "sample_indices": [
+            0
+          ],
+          "timestamps_seconds": [
+            0.0
+          ],
+          "window_global_index": 0
+        },
+        {
+          "local_id": "D",
+          "run_id": "replay",
+          "sample_indices": [
+            0
+          ],
+          "timestamps_seconds": [
+            3.0
+          ],
+          "window_global_index": 1
+        }
+      ],
+      "first_seen_time": 0.0,
+      "first_seen_window": 0,
+      "is_temporary": false,
+      "last_seen_time": 3.0,
+      "last_seen_window": 1,
+      "lifecycle_status": "active",
+      "merged_into": null,
+      "missing_window_count": 0,
+      "relation_history": [],
+      "spatial_history": [
+        {
+          "confidence": 0.95,
+          "scene_id": "scene_0001",
+          "spatial_region": "unknown",
+          "window_global_index": 0
+        },
+        {
+          "confidence": 0.95,
+          "scene_id": "scene_0001",
+          "spatial_region": "unknown",
+          "window_global_index": 1
+        }
+      ],
+      "visibility": "visible"
+    },
+    "person_0001": {
+      "aliases": [],
+      "appearance_conflicts": {},
+      "appearance_signature": {},
+      "attributes": {},
+      "canonical_name": "worker",
+      "confidence": 0.95,
+      "current_scene_id": "scene_0001",
+      "delayed_merge_support": {},
+      "entity_id": "person_0001",
+      "entity_type": "person",
+      "evidence": [
+        {
+          "local_id": "P",
+          "run_id": "replay",
+          "sample_indices": [
+            0
+          ],
+          "timestamps_seconds": [
+            0.0
+          ],
+          "window_global_index": 0
+        },
+        {
+          "local_id": "P",
+          "run_id": "replay",
+          "sample_indices": [
+            0
+          ],
+          "timestamps_seconds": [
+            3.0
+          ],
+          "window_global_index": 1
+        }
+      ],
+      "first_seen_time": 0.0,
+      "first_seen_window": 0,
+      "is_temporary": false,
+      "last_seen_time": 3.0,
+      "last_seen_window": 1,
+      "lifecycle_status": "active",
+      "merged_into": null,
+      "missing_window_count": 0,
+      "relation_history": [],
+      "spatial_history": [
+        {
+          "confidence": 0.95,
+          "scene_id": "scene_0001",
+          "spatial_region": "unknown",
+          "window_global_index": 0
+        },
+        {
+          "confidence": 0.95,
+          "scene_id": "scene_0001",
+          "spatial_region": "unknown",
+          "window_global_index": 1
+        }
+      ],
+      "visibility": "visible"
+    }
+  },
+  "entity_counters": {
+    "device": 1,
+    "person": 1
+  },
+  "event_counter": 8,
+  "last_committed_window": 1,
+  "pending_attribute_keys": [],
+  "run_id": "replay",
+  "scene_counter": 1,
+  "scenes": {
+    "scene_0001": {
+      "continuity": "continuous",
+      "last_active_window": 1,
+      "scene_id": "scene_0001",
+      "start_window": 0,
+      "view_type": "medium",
+      "visible_entity_ids": [
+        "device_0001",
+        "person_0001"
+      ]
+    }
+  },
+  "schema_version": "2.0"
+}

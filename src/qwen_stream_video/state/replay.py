@@ -7,6 +7,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from ..config import AppConfig
 from ..domain import ObservationBatch, WindowObservation
 from ..exceptions import ObservationReplayError
@@ -15,9 +17,21 @@ from ..storage.state_storage import StateStorage
 from ..video import SampledFrame, VideoWindow
 from .state_reducer import StateReducer
 
+DEFAULT_ACTIONS_PATH = Path(__file__).resolve().parents[3] / "vocabularies" / "actions.yaml"
+
 
 class ObservationV1Adapter:
-    """Migrate Stage1 fields without inventing identity or evidence."""
+    """Migrate Stage1 fields without inventing identity or evidence.
+
+    Illegal action types are mapped to ``other`` at the adapter layer so that
+    replay outputs are self-describing even before normalization.
+    """
+
+    def __init__(self, actions_path: str | Path | None = None) -> None:
+        path = Path(actions_path or DEFAULT_ACTIONS_PATH)
+        with Path(path).open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+        self.actions: dict[str, dict[str, Any]] = data.get("actions", {})
 
     def adapt(self, data: dict[str, Any], window: VideoWindow) -> ObservationBatch:
         payload = json.loads(json.dumps(data))
@@ -33,11 +47,25 @@ class ObservationV1Adapter:
             raw_scene["scene_visibility"] = raw_scene.pop("visibility", "unknown")
         if "target_visibility" not in raw_scene:
             raw_scene["target_visibility"] = raw_scene["scene_visibility"]
-        raw_scene.setdefault("continuity_hint", "camera_change" if raw_scene.get("camera_change") else "continuous")
+        raw_scene.setdefault(
+            "continuity_hint", "camera_change" if raw_scene.get("camera_change") else "continuous"
+        )
         payload["scene"] = raw_scene
         for action in payload.get("actions", []):
-            action.setdefault("raw_action_type", action.get("action_type"))
-            action.setdefault("normalization_status", "canonical")
+            raw = action.get("action_type")
+            action["raw_action_type"] = raw
+            if raw == "unknown":
+                action["action_type"] = "unknown"
+                action["action_family"] = self.actions.get("unknown", {}).get("family", "unknown")
+                action["normalization_status"] = "unknown"
+            elif raw in self.actions:
+                action["action_type"] = raw
+                action["action_family"] = self.actions[raw].get("family", "other")
+                action["normalization_status"] = "canonical"
+            else:
+                action["action_type"] = "other"
+                action["action_family"] = self.actions.get("other", {}).get("family", "other")
+                action["normalization_status"] = "out_of_vocabulary"
         for attribute in payload.get("attribute_observations", []):
             raw_attribute = attribute.get("attribute", attribute.get("attribute_key"))
             attribute.setdefault("attribute_key", raw_attribute)
@@ -86,6 +114,23 @@ class ObservationReplay:
             )
         return frames
 
+    def _build_run_meta(self, source_meta: dict[str, Any]) -> dict[str, Any]:
+        """Return deterministic replay metadata without source non-determinism."""
+        return {
+            "run_id": "replay",
+            "state_schema_version": "2.0",
+            "state_enabled": True,
+            "observation_schema_version": source_meta.get(
+                "observation_schema_version", self.config.observation.schema_version
+            ),
+            "source_run_id": source_meta.get("run_id"),
+            "replay": True,
+            "experiment_name": self.config.experiment.name,
+            "experiment_seed": self.config.experiment.seed,
+            "window_count": None,
+            "observation_count": None,
+        }
+
     def replay(
         self,
         observations_path: str | Path,
@@ -101,13 +146,36 @@ class ObservationReplay:
             raise ObservationReplayError(f"Replay input is missing: {run_meta_path}")
         windows: dict[int, VideoWindow] = {}
         window_data: dict[int, dict[str, Any]] = {}
-        for row in window_rows:
+        sorted_rows = sorted(window_rows, key=lambda row: row.get("global_index", -1))
+        previous_end: float | None = None
+        for row in sorted_rows:
+            index = row.get("global_index")
+            if index is None:
+                raise ObservationReplayError("Window metadata is missing global_index")
+            if "start_seconds" not in row or "end_seconds" not in row:
+                raise ObservationReplayError(
+                    f"Window {index} metadata is missing required time fields"
+                )
+            if row.get("commit_start_seconds") is None:
+                start = float(row["start_seconds"])
+                if previous_end is None:
+                    row["commit_start_seconds"] = start
+                else:
+                    row["commit_start_seconds"] = max(start, previous_end)
             try:
                 window = VideoWindow.model_validate(
                     {key: value for key, value in row.items() if key != "sampled_frames"}
                 )
             except Exception as exc:
                 raise ObservationReplayError(f"Invalid window metadata: {exc}") from exc
+            if previous_end is not None and window.start_seconds < previous_end - 1e-9:
+                # Overlapping windows are valid, but the rows must be sorted.
+                pass
+            previous_end = window.end_seconds
+            if window.global_index in windows:
+                raise ObservationReplayError(
+                    f"Duplicate window global_index: {window.global_index}"
+                )
             windows[window.global_index] = window
             window_data[window.global_index] = row
         if not windows:
@@ -115,19 +183,23 @@ class ObservationReplay:
         output = Path(output_dir)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.mkdir(parents=True, exist_ok=False)
-        for filename in ("observations.jsonl", "windows.jsonl", "run_meta.json"):
+        for filename in ("observations.jsonl", "windows.jsonl"):
             source = input_dir / filename
             shutil.copyfile(source, output / filename)
+        source_meta = json.loads(run_meta_path.read_text(encoding="utf-8"))
+        run_meta = self._build_run_meta(source_meta)
+        run_meta["window_count"] = len(window_rows)
+        run_meta["observation_count"] = len(observation_rows)
+        with (output / "run_meta.json").open("w", encoding="utf-8") as handle:
+            json.dump(run_meta, handle, ensure_ascii=False, indent=2, sort_keys=True)
         config_for_storage = self.config.model_copy(
             update={"storage": self.config.storage.model_copy(update={"output_root": str(output.parent)})}
         )
         storage = StateStorage(output, config_for_storage)
         storage.initialize()
-        source_meta = json.loads(run_meta_path.read_text(encoding="utf-8"))
-        run_id = f"{source_meta.get('run_id', 'replay')}_replay"
         from ..domain import GlobalState
 
-        state = GlobalState(run_id=run_id)
+        state = GlobalState(run_id=run_meta["run_id"])
         by_index = {int(row.get("window", {}).get("global_index", -1)): row for row in observation_rows}
         for index in sorted(windows):
             if index not in by_index:

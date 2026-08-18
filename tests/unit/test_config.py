@@ -99,7 +99,6 @@ storage:
     assert config.observation == ObservationConfig(
         schema_version="2.0",
         require_evidence_frames=False,
-        use_candidate_global_ids=True,
         allow_candidate_global_ids=True,
     )
     assert config.runtime == RuntimeConfig(
@@ -254,3 +253,58 @@ def test_unknown_yaml_keys_fail_before_startup(tmp_path: Path) -> None:
     path = _write_yaml(tmp_path, "unknown_section:\n  value: demo\n")
     with pytest.raises(ConfigurationError):
         load_config(config_path=path)
+
+
+def test_entity_registry_thresholds_are_ordered(tmp_path: Path) -> None:
+    path = _write_yaml(
+        tmp_path,
+        "entity_registry:\n  confident_match_threshold: 0.5\n  ambiguous_match_threshold: 0.7\n",
+    )
+    with pytest.raises(ConfigurationError):
+        load_config(config_path=path)
+
+
+def test_transition_engine_thresholds_are_ordered(tmp_path: Path) -> None:
+    path = _write_yaml(
+        tmp_path,
+        "transition_engine:\n  high_confidence_threshold: 0.5\n  medium_confidence_threshold: 0.6\n",
+    )
+    with pytest.raises(ConfigurationError):
+        load_config(config_path=path)
+
+
+def test_observation_candidate_global_id_flags_can_disable(tmp_path: Path) -> None:
+    path = _write_yaml(
+        tmp_path,
+        "observation:\n  allow_candidate_global_ids: false\n",
+    )
+    config = load_config(config_path=path)
+    assert config.observation.allow_candidate_global_ids is False
+
+
+def test_state_sections_load_with_defaults() -> None:
+    config = load_config()
+    assert config.state.enabled is True
+    assert config.scene_tracker.enabled is True
+    assert config.entity_registry.allow_delayed_merge is True
+    assert config.action_tracker.repeat_action_min_gap_seconds == 5.0
+    assert config.transition_engine.max_pending_gap_windows == 1
+    assert config.context.max_serialized_characters >= 100
+
+
+def test_storage_save_flags_are_respected(tmp_path: Path) -> None:
+    path = _write_yaml(
+        tmp_path,
+        """
+storage:
+  save_entity_resolutions: false
+  save_state_events: false
+  save_state_deltas: false
+  save_state_snapshots: false
+""",
+    )
+    config = load_config(config_path=path)
+    assert config.storage.save_entity_resolutions is False
+    assert config.storage.save_state_events is False
+    assert config.storage.save_state_deltas is False
+    assert config.storage.save_state_snapshots is False

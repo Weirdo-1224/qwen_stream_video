@@ -34,7 +34,7 @@ class StateReductionResult(BaseModel):
     events: list[StateEvent] = Field(default_factory=list)
     delta: StateDelta | None = None
     warnings: list[str] = Field(default_factory=list)
-    error: str | None = None
+    error: Exception | str | None = None
 
 
 class StateReducer:
@@ -53,7 +53,10 @@ class StateReducer:
         self.scene_tracker = scene_tracker or SceneTracker(self.config.scene_tracker)
         self.resolver = resolver or EntityResolver(self.registry)
         self.action_tracker = action_tracker or ActionTracker(self.config.action_tracker)
-        self.transition_engine = transition_engine or TransitionEngine(self.config.transition_engine)
+        self.transition_engine = transition_engine or TransitionEngine(
+            self.config.transition_engine,
+            require_evidence_frames=self.config.observation.require_evidence_frames,
+        )
 
     def apply_observation(
         self,
@@ -89,7 +92,7 @@ class StateReducer:
                 for mapping in resolution.mappings
                 if mapping.global_entity_id in working.entities
             }
-            visibility_updates = self.registry.mark_not_observed(
+            visibility_updates, visibility_events = self.registry.mark_not_observed(
                 working,
                 observed_ids,
                 window.global_index,
@@ -100,13 +103,15 @@ class StateReducer:
             )
             missing_events = self.action_tracker.mark_missing(
                 working,
-                window.global_index,
+                window,
                 camera_change=scene_result.camera_change,
                 observed_action_ids=set(action_result.action_ids),
             )
             events = list(scene_result.events)
+            events.extend(resolution.events)
             events.extend(action_result.events)
             events.extend(transition_result.events)
+            events.extend(visibility_events)
             events.extend(missing_events)
             warnings = list(resolution.warnings)
             warnings.extend(action_result.warnings)
@@ -132,23 +137,44 @@ class StateReducer:
                 delta=delta,
                 warnings=warnings,
             )
-        except Exception as exc:
+        except StateEngineError as exc:
             event = StateEvent(
                 event_id=f"state_error_{window.global_index:06d}",
                 event_type="state_update_error",
                 window_global_index=window.global_index,
                 reason=f"{type(exc).__name__}: {exc}",
-                metadata={"state_unchanged": True},
+                metadata={"state_unchanged": True, "error_type": type(exc).__name__},
             )
             if self.config.state.fail_on_state_error:
-                raise StateEngineError(
-                    f"State update failed for window {window.global_index}: {exc}"
-                ) from exc
+                raise
             return StateReductionResult(
                 state=state,
                 events=[event],
                 warnings=[str(exc)],
-                error=str(exc),
+                error=exc,
+            )
+        except Exception as exc:
+            wrapped = StateEngineError(
+                f"State update failed for window {window.global_index}: {exc}"
+            )
+            event = StateEvent(
+                event_id=f"state_error_{window.global_index:06d}",
+                event_type="state_update_error",
+                window_global_index=window.global_index,
+                reason=f"{type(wrapped).__name__}: {wrapped}",
+                metadata={
+                    "state_unchanged": True,
+                    "error_type": type(wrapped).__name__,
+                    "original_error_type": type(exc).__name__,
+                },
+            )
+            if self.config.state.fail_on_state_error:
+                raise wrapped from exc
+            return StateReductionResult(
+                state=state,
+                events=[event],
+                warnings=[str(wrapped)],
+                error=wrapped,
             )
 
     def apply_observation_gap(

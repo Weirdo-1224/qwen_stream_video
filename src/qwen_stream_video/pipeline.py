@@ -21,6 +21,7 @@ from .video import (
     read_video_metadata,
     sample_window_frames,
     select_windows,
+    select_windows_with_warmup,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,7 +93,14 @@ class StreamingVideoPipeline:
             end_window=end_window,
             max_windows=max_windows,
         )
-        selected = self._add_warmup(all_windows, requested, warmup_windows)
+        warmup_count = self.config.video.warmup_windows if warmup_windows is None else warmup_windows
+        selected, cold_start, warmup_range = select_windows_with_warmup(
+            all_windows,
+            start_window=requested[0].global_index if requested else None,
+            end_window=requested[-1].global_index if requested else None,
+            warmup_windows=warmup_count,
+            max_windows=max_windows,
+        )
         if validate_only:
             self._report_validation(metadata, selected)
             return None
@@ -105,20 +113,23 @@ class StreamingVideoPipeline:
             state_storage.initialize(prompt_builder=self.prompt_builder)
         self._state_storage = state_storage
         self._state = GlobalState(run_id=storage.run_id) if self._state_enabled else None
+        committed_windows = [w for w in selected if w.processing_role == "commit"]
+        first_committed_window = committed_windows[0].global_index if committed_windows else None
+        last_committed_window = committed_windows[-1].global_index if committed_windows else None
+        covered_start_seconds = committed_windows[0].start_seconds if committed_windows else None
+        covered_end_seconds = committed_windows[-1].end_seconds if committed_windows else None
         storage.update_run_meta(
             {
                 "requested_start_window": start_window,
                 "requested_end_window": end_window,
-                "warmup_windows": warmup_windows if warmup_windows is not None else self.config.video.warmup_windows,
-                "warmup_start_window": selected[0].global_index if selected and selected[0].processing_role == "warmup" else None,
-                "warmup_end_window": next((window.global_index - 1 for window in selected if window.processing_role == "commit"), None),
-                "first_committed_window": next((window.global_index for window in selected if window.processing_role == "commit"), None),
-                "last_committed_window": next((window.global_index for window in reversed(selected) if window.processing_role == "commit"), None),
-                "cold_start": bool(
-                    selected
-                    and selected[0].processing_role == "commit"
-                    and selected[0].global_index > 0
-                ),
+                "warmup_windows": warmup_count,
+                "warmup_start_window": warmup_range[0] if warmup_range else None,
+                "warmup_end_window": warmup_range[1] if warmup_range else None,
+                "first_committed_window": first_committed_window,
+                "last_committed_window": last_committed_window,
+                "covered_start_seconds": covered_start_seconds,
+                "covered_end_seconds": covered_end_seconds,
+                "cold_start": cold_start,
                 "observation_schema_version": self.config.observation.schema_version,
                 "state_schema_version": "2.0" if self._state_enabled else None,
                 "state_enabled": self._state_enabled,
@@ -153,43 +164,6 @@ class StreamingVideoPipeline:
             )
         return storage
 
-    def _add_warmup(
-        self,
-        all_windows: list[VideoWindow],
-        requested: list[VideoWindow],
-        warmup_windows: int | None,
-    ) -> list[VideoWindow]:
-        count = self.config.video.warmup_windows if warmup_windows is None else warmup_windows
-        if count <= 0 or not requested:
-            return [
-                window.model_copy(
-                    update={
-                        "run_index": i,
-                        # A filtered run has no usable predecessor unless it
-                        # explicitly prepended warmup windows.
-                        "commit_start_seconds": window.start_seconds if i == 0 else window.commit_start_seconds,
-                    }
-                )
-                for i, window in enumerate(requested)
-            ]
-        first = requested[0].global_index
-        prior = [window for window in all_windows if window.global_index < first]
-        warmup = prior[-count:]
-        warmup_ids = {window.global_index for window in warmup}
-        selected = warmup + requested
-        result = [
-            window.model_copy(
-                update={
-                    "run_index": index,
-                    "processing_role": "warmup" if window.global_index in warmup_ids else "commit",
-                }
-            )
-            for index, window in enumerate(selected)
-        ]
-        if not warmup and result:
-            result[0] = result[0].model_copy(update={"commit_start_seconds": result[0].start_seconds})
-        return result
-
     def _config_with_output_root(self, output_root: str | Path) -> AppConfig:
         updated_storage = self.config.storage.model_copy(update={"output_root": str(output_root)})
         return self.config.model_copy(update={"storage": updated_storage})
@@ -218,6 +192,7 @@ class StreamingVideoPipeline:
                 if self._state_enabled and self._state is not None
                 else None
             )
+            context_characters = len(context.to_json()) if context is not None else None
             if dry_run:
                 for frame in sampled_frames:
                     encode_frame_to_data_url(
@@ -225,7 +200,7 @@ class StreamingVideoPipeline:
                         self.config.sampling.max_image_side,
                         self.config.sampling.jpeg_quality,
                     )
-                storage.write_window_result(window, sampled_frames)
+                storage.write_window_result(window, sampled_frames, context_characters=context_characters)
                 return
             images = [
                 encode_frame_to_data_url(
@@ -246,9 +221,19 @@ class StreamingVideoPipeline:
             raw_result = self.client.infer(self.prompt_builder.system_prompt, user_prompt, images)
             batch, parser_warnings = self.parser.parse(raw_result.raw_text, sampled_frames, window=window)
             normalized = self.normalizer.normalize(batch)
+            if self._state_enabled and self._state is not None and context is not None:
+                candidate_warnings = self.context_builder.sanitize_candidate_global_ids(
+                    self._state,
+                    window,
+                    normalized.batch,
+                    self.config.observation.allow_candidate_global_ids,
+                )
+                normalized.warnings.extend(candidate_warnings)
             for warning in parser_warnings + [warning.message for warning in normalized.warnings]:
                 logger.warning("Window %d: %s", window.global_index, warning)
-            storage.write_window_result(window, sampled_frames, raw_result=raw_result, observation=normalized.batch)
+            storage.write_window_result(
+                window, sampled_frames, raw_result=raw_result, observation=normalized.batch, context_characters=context_characters
+            )
             if self._state_enabled and self._state is not None and self._state_storage is not None:
                 self._state_storage.write_normalization_warnings(window.global_index, normalized.warnings)
                 reduction = self.state_reducer.apply_observation(
@@ -275,15 +260,23 @@ class StreamingVideoPipeline:
             raise
         except Exception as exc:
             logger.exception("Window %d failed", window.global_index)
-            storage.write_window_result(window, sampled_frames, raw_result=raw_result, error=exc)
+            storage.write_window_result(
+                window, sampled_frames, raw_result=raw_result, error=exc, context_characters=context_characters if 'context_characters' in locals() else None
+            )
             if self._state_enabled and self._state is not None and self._state_storage is not None:
+                state_before = self._state.model_dump(mode="json")
                 gap = self.state_reducer.apply_observation_gap(self._state, window, reason=str(exc))
                 self._state = gap.state
                 self._state_storage.write_reduction(
                     gap, window_global_index=window.global_index, warmup=window.processing_role == "warmup"
                 )
+                state_changed = state_before != self._state.model_dump(mode="json")
                 self._state_storage.write_error(
-                    window.global_index, stage="observation", error=exc, observation_succeeded=False
+                    window.global_index,
+                    stage="observation",
+                    error=exc,
+                    observation_succeeded=False,
+                    state_affected=state_changed,
                 )
 
     def _report_validation(self, metadata: VideoMetadata, windows: list[VideoWindow]) -> None:

@@ -15,7 +15,13 @@ from ..domain import (
     StateEvent,
     TimeInterval,
 )
-from ..video import SampledFrame, evidence_intersects_commit_interval, evidence_timestamps
+from ..exceptions import ActionTrackingError
+from ..video import (
+    SampledFrame,
+    VideoWindow,
+    evidence_intersects_commit_interval,
+    evidence_timestamps,
+)
 from .scene_tracker import SceneUpdateResult
 
 
@@ -73,6 +79,29 @@ class ActionTracker:
         )
 
     @staticmethod
+    def _first_evidence_timestamp(
+        evidence_frames: list[int], sampled_frames: list[SampledFrame]
+    ) -> float | None:
+        if not evidence_frames:
+            return None
+        timestamps = evidence_timestamps(evidence_frames, sampled_frames)
+        return min(timestamps) if timestamps else None
+
+    @staticmethod
+    def _previous_sample_timestamp(
+        evidence_frames: list[int], sampled_frames: list[SampledFrame], window_start: float
+    ) -> float:
+        if not evidence_frames or not sampled_frames:
+            return window_start
+        first_evidence_index = min(evidence_frames)
+        candidates = [
+            frame.timestamp_seconds
+            for frame in sampled_frames
+            if frame.sample_index < first_evidence_index
+        ]
+        return max(candidates) if candidates else window_start
+
+    @staticmethod
     def _key(actor_id: str, action_type: str, target_id: str | None, tool_id: str | None) -> tuple[str, str, str | None, str | None]:
         return actor_id, action_type, target_id, tool_id
 
@@ -81,16 +110,30 @@ class ActionTracker:
         state: GlobalState,
         key: tuple[str, str, str | None, str | None],
         window: int,
+        current_time: float,
+        scene_continuous: bool,
     ) -> GlobalActionState | None:
+        continuable_lifecycles = {
+            ActionLifecycle.STARTED,
+            ActionLifecycle.ONGOING,
+            ActionLifecycle.UNCERTAIN,
+            ActionLifecycle.POSSIBLE_ENDED,
+        }
         matches = [
             action
             for action in state.actions.values()
             if self._key(action.actor_id, action.action_type, action.target_id, action.tool_id) == key
-            and action.lifecycle != ActionLifecycle.ENDED
+            and action.lifecycle in continuable_lifecycles
         ]
         matches.sort(key=lambda item: (-item.last_observed_window, item.action_id))
         for action in matches:
-            if window - action.last_observed_window <= self.config.continue_max_gap_windows + 1:
+            window_gap = window - action.last_observed_window
+            time_gap = current_time - action.last_observed_time
+            if (
+                scene_continuous
+                and window_gap <= self.config.continue_max_gap_windows + 1
+                and time_gap < self.config.repeat_action_min_gap_seconds
+            ):
                 return action
         return None
 
@@ -104,9 +147,29 @@ class ActionTracker:
         *,
         commit_only: bool = False,
     ) -> ActionUpdateResult:
+        try:
+            return self._update(state, observation, resolutions, sampled_frames, scene_result, commit_only=commit_only)
+        except ActionTrackingError:
+            raise
+        except Exception as exc:
+            raise ActionTrackingError(
+                f"Action tracking failed for window {observation.window.global_index}: {exc}"
+            ) from exc
+
+    def _update(
+        self,
+        state: GlobalState,
+        observation: ObservationBatch,
+        resolutions: EntityResolutionBatch,
+        sampled_frames: list[SampledFrame],
+        scene_result: SceneUpdateResult,
+        *,
+        commit_only: bool = False,
+    ) -> ActionUpdateResult:
         window = observation.window.global_index
         mapping = self._mapping(resolutions)
         result = ActionUpdateResult(window_global_index=window)
+        scene_continuous = not scene_result.camera_change
         for local_action in sorted(observation.actions, key=lambda item: item.local_id):
             actor_id = mapping.get(local_action.actor_local_id or "")
             if actor_id is None:
@@ -124,10 +187,12 @@ class ActionTracker:
             in_commit = evidence_intersects_commit_interval(
                 local_action.evidence_frames, sampled_frames, observation_to_window(observation)
             ) if local_action.evidence_frames else False
+            current_time = max(evidence.timestamps_seconds) if evidence.timestamps_seconds else observation.window.end_seconds
             key = self._key(actor_id, local_action.action_type, target_id, tool_id)
-            existing = self._find_existing(state, key, window)
+            existing = self._find_existing(state, key, window, current_time, scene_continuous)
             if existing is not None:
                 existing.last_observed_window = window
+                existing.last_observed_time = current_time
                 existing.missing_window_count = 0
                 existing.lifecycle = (
                     ActionLifecycle.UNCERTAIN
@@ -141,6 +206,13 @@ class ActionTracker:
                 if existing.action_id not in state.active_action_ids:
                     state.active_action_ids.append(existing.action_id)
                 result.action_ids.append(existing.action_id)
+                reason = (
+                    "unresolved_reference"
+                    if existing.lifecycle == ActionLifecycle.UNCERTAIN and uncertain_reference
+                    else "camera_change_or_missing_reference"
+                    if existing.lifecycle == ActionLifecycle.UNCERTAIN
+                    else "same_action_key"
+                )
                 result.events.append(
                     self._event(
                         state,
@@ -148,7 +220,7 @@ class ActionTracker:
                         window,
                         existing,
                         evidence,
-                        "camera_change_or_missing_reference" if existing.lifecycle == ActionLifecycle.UNCERTAIN else "same_action_key",
+                        reason,
                     )
                 )
                 continue
@@ -159,7 +231,13 @@ class ActionTracker:
                 continue
             state.action_counter += 1
             action_id = f"action_{state.action_counter:06d}"
-            timestamps = evidence.timestamps_seconds or [observation.window.start_seconds]
+            first_timestamp = self._first_evidence_timestamp(
+                local_action.evidence_frames, sampled_frames
+            )
+            start_lower = self._previous_sample_timestamp(
+                local_action.evidence_frames, sampled_frames, observation.window.start_seconds
+            )
+            start_upper = first_timestamp if first_timestamp is not None else observation.window.end_seconds
             lifecycle = (
                 ActionLifecycle.INSTANT
                 if local_action.action_type in self.config.instant_actions
@@ -175,13 +253,15 @@ class ActionTracker:
                 lifecycle=lifecycle,
                 start_window=window,
                 last_observed_window=window,
-                start_time_interval=TimeInterval(lower=timestamps[0], upper=timestamps[0]),
+                last_observed_time=current_time,
+                start_time_interval=TimeInterval(lower=start_lower, upper=start_upper),
                 observed_windows=[window],
                 confidence=local_action.confidence,
                 evidence=[evidence],
             )
             state.actions[action_id] = action
-            state.active_action_ids.append(action_id)
+            if lifecycle != ActionLifecycle.INSTANT:
+                state.active_action_ids.append(action_id)
             result.action_ids.append(action_id)
             event_type = "action_instant" if lifecycle == ActionLifecycle.INSTANT else "action_uncertain" if lifecycle == ActionLifecycle.UNCERTAIN else "action_started"
             result.events.append(self._event(state, event_type, window, action, evidence, "commit_evidence"))
@@ -192,19 +272,43 @@ class ActionTracker:
     def mark_missing(
         self,
         state: GlobalState,
-        current_window: int,
+        current_window: VideoWindow,
+        *,
+        camera_change: bool = False,
+        observed_action_ids: set[str] | None = None,
+    ) -> list[StateEvent]:
+        try:
+            return self._mark_missing(state, current_window, camera_change=camera_change, observed_action_ids=observed_action_ids)
+        except ActionTrackingError:
+            raise
+        except Exception as exc:
+            raise ActionTrackingError(
+                f"Action missing-mark failed for window {current_window.global_index}: {exc}"
+            ) from exc
+
+    def _mark_missing(
+        self,
+        state: GlobalState,
+        current_window: VideoWindow,
         *,
         camera_change: bool = False,
         observed_action_ids: set[str] | None = None,
     ) -> list[StateEvent]:
         events: list[StateEvent] = []
         observed_action_ids = observed_action_ids or set()
-        for action_id in sorted(state.active_action_ids):
+        active_ids = sorted(state.active_action_ids)
+        new_active: list[str] = []
+        for action_id in active_ids:
             if action_id in observed_action_ids:
+                new_active.append(action_id)
                 continue
             action = state.actions.get(action_id)
             if action is None or action.lifecycle in {ActionLifecycle.ENDED, ActionLifecycle.INSTANT}:
                 continue
+            last_evidence = action.evidence[-1] if action.evidence else EvidenceReference(
+                run_id=state.run_id,
+                window_global_index=current_window.global_index,
+            )
             if camera_change:
                 action.lifecycle = ActionLifecycle.UNCERTAIN
                 state.event_counter += 1
@@ -212,31 +316,39 @@ class ActionTracker:
                     StateEvent(
                         event_id=f"event_{state.event_counter:06d}",
                         event_type="action_uncertain",
-                        window_global_index=current_window,
+                        window_global_index=current_window.global_index,
                         action_id=action_id,
                         reason="camera_change_or_occlusion",
+                        evidence=[last_evidence],
                     )
                 )
+                new_active.append(action_id)
                 continue
             action.missing_window_count += 1
             if action.missing_window_count < self.config.end_missing_windows:
                 action.lifecycle = ActionLifecycle.POSSIBLE_ENDED
                 event_type = "action_possible_ended"
+                new_active.append(action_id)
             else:
                 action.lifecycle = ActionLifecycle.ENDED
-                action.end_window = current_window
-                state.active_action_ids.remove(action_id)
+                action.end_window = current_window.global_index
+                action.end_time_interval = TimeInterval(
+                    lower=action.last_observed_time,
+                    upper=current_window.end_seconds,
+                )
                 event_type = "action_ended"
             state.event_counter += 1
             events.append(
                 StateEvent(
                     event_id=f"event_{state.event_counter:06d}",
                     event_type=event_type,
-                    window_global_index=current_window,
+                    window_global_index=current_window.global_index,
                     action_id=action_id,
                     reason="missing_observation_window",
+                    evidence=[last_evidence],
                 )
             )
+        state.active_action_ids = new_active
         return events
 
 

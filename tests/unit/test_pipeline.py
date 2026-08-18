@@ -214,8 +214,9 @@ def test_previous_summary_carried_between_windows(
     pipeline = StreamingVideoPipeline(app_config, video_path, client=fake_client)
     pipeline.run()
     assert pipeline._previous_summary == "Test summary."
-    assert len(pipeline._previous_entities) == 1
-    assert pipeline._previous_entities[0]["candidate_global_id"] == "person_1"
+    # Invalid candidate_global_id values that do not appear in the current
+    # candidate list are sanitized to None, so no previous entities are carried.
+    assert len(pipeline._previous_entities) == 0
 
 
 def test_no_state_does_not_carry_summary(

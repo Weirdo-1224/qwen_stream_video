@@ -37,7 +37,6 @@ model:
 observation:
   schema_version: "2.0"
   require_evidence_frames: true
-  use_candidate_global_ids: true
   allow_candidate_global_ids: true
   context_policy: visual_only
 

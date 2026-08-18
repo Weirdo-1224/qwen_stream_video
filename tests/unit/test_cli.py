@@ -285,3 +285,28 @@ def test_build_client_uses_qwen_client_for_dashscope_provider() -> None:
 
     assert client == "qwen-client-instance"
     mock_qwen_client.assert_called_once_with(FakeConfig.model)
+
+
+def test_no_state_does_not_create_state_files(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    config_path = _write_config(tmp_path)
+    video_path = _make_test_video(tmp_path / "video.mp4", duration=5.0)
+    exit_code = main(
+        [
+            "--config",
+            str(config_path),
+            "--video",
+            str(video_path),
+            "--dry-run",
+            "--no-state",
+            "--max-windows",
+            "2",
+        ]
+    )
+    assert exit_code == 0
+    output_dir = _extract_output_dir(capsys.readouterr().out)
+    assert not (output_dir / "state_events.jsonl").exists()
+    assert not (output_dir / "entity_resolutions.jsonl").exists()
+    assert not (output_dir / "final_state.json").exists()

@@ -14,6 +14,7 @@ from ..domain import (
     ViewType,
     VisibilityState,
 )
+from ..exceptions import SceneTrackingError
 
 
 class SceneUpdateResult(BaseModel):
@@ -26,6 +27,7 @@ class SceneUpdateResult(BaseModel):
     events: list[StateEvent] = Field(default_factory=list)
     camera_change: bool = False
     visibility_changed_entity_ids: list[str] = Field(default_factory=list)
+    preserve_entities_across_scenes: bool = True
 
 
 class SceneTracker:
@@ -55,6 +57,16 @@ class SceneTracker:
         )
 
     def update(self, state: GlobalState, observation: ObservationBatch) -> SceneUpdateResult:
+        try:
+            return self._update(state, observation)
+        except SceneTrackingError:
+            raise
+        except Exception as exc:
+            raise SceneTrackingError(
+                f"Scene tracking failed for window {observation.window.global_index}: {exc}"
+            ) from exc
+
+    def _update(self, state: GlobalState, observation: ObservationBatch) -> SceneUpdateResult:
         window_index = observation.window.global_index
         scene_observation = observation.scene
         previous_id = state.current_scene_id
@@ -84,7 +96,8 @@ class SceneTracker:
             )
             changed = True
         elif (
-            scene_observation.camera_change
+            self.config.enabled
+            and scene_observation.camera_change
             and self.config.camera_change_starts_new_scene
         ):
             state.scene_counter += 1
@@ -171,4 +184,5 @@ class SceneTracker:
             events=events,
             camera_change=scene_observation.camera_change,
             visibility_changed_entity_ids=sorted(visibility_changed),
+            preserve_entities_across_scenes=self.config.preserve_entities_across_scenes,
         )

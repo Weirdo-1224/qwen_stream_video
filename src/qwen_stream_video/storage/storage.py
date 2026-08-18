@@ -186,6 +186,7 @@ class RunStorage:
         error: Exception | None = None,
         *,
         save_frames: bool | None = None,
+        context_characters: int | None = None,
     ) -> None:
         """Persist one window's results.
 
@@ -202,13 +203,15 @@ class RunStorage:
             observation: Optional validated observation for the window.
             error: Optional exception raised while processing the window.
             save_frames: Override the configured sampled-frame persistence.
+            context_characters: Length of the serialized context sent to the model.
         """
         self._window_count += 1
         raw_response_path = None
 
-        if raw_result is not None:
+        if raw_result is not None and self.config.storage.save_raw_responses:
             raw_response_path = self._save_raw_response(window, raw_result)
-            self._write_metrics(window, raw_result, raw_response_path)
+        if raw_result is not None:
+            self._write_metrics(window, raw_result, raw_response_path, context_characters)
 
         if observation is not None:
             self._write_observation(observation)
@@ -372,9 +375,10 @@ class RunStorage:
         window: VideoWindow,
         raw_result: RawInferenceResult,
         raw_response_path: str | None,
+        context_characters: int | None = None,
     ) -> None:
         """Append a metrics record to ``api_metrics.jsonl``."""
-        record = {
+        record: dict[str, Any] = {
             "window_run_index": window.run_index,
             "window_global_index": window.global_index,
             "window_start_seconds": window.start_seconds,
@@ -387,6 +391,8 @@ class RunStorage:
             "attempt_count": raw_result.attempt_count,
             "raw_response_path": raw_response_path,
         }
+        if context_characters is not None:
+            record["context_characters"] = context_characters
         self._metrics_file.write(json.dumps(record, ensure_ascii=False) + "\n")
         self._metrics_file.flush()
 

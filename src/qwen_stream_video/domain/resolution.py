@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import EntityResolutionStatus
+from .event import StateEvent
 from .state import EvidenceReference
 
 
@@ -40,3 +41,4 @@ class EntityResolutionBatch(BaseModel):
     window_global_index: int = Field(ge=0)
     mappings: list[EntityResolution] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    events: list[StateEvent] = Field(default_factory=list)

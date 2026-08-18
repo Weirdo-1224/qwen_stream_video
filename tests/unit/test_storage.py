@@ -298,3 +298,28 @@ def test_observation_without_error_only_writes_observation(
 
     assert len(_read_jsonl(storage.run_dir / "observations.jsonl")) == 1
     assert len(_read_jsonl(storage.run_dir / "errors.jsonl")) == 0
+
+
+
+def test_raw_response_not_saved_when_disabled(
+    app_config: AppConfig,
+    video_metadata: VideoMetadata,
+    video_window: VideoWindow,
+    sampled_frames: list[SampledFrame],
+    raw_result: RawInferenceResult,
+) -> None:
+    """save_raw_responses=false prevents raw response files but still writes metrics."""
+    config = app_config.model_copy(update={"storage": app_config.storage.model_copy(update={"save_raw_responses": False})})
+    storage = RunStorage(config, video_metadata)
+    storage.initialize()
+    storage.write_window_result(
+        window=video_window,
+        sampled_frames=sampled_frames,
+        raw_result=raw_result,
+    )
+    storage.finalize()
+
+    assert not storage._raw_dir.exists() or len(list(storage._raw_dir.iterdir())) == 0
+    metrics = _read_jsonl(storage.run_dir / "api_metrics.jsonl")
+    assert len(metrics) == 1
+    assert metrics[0]["raw_response_path"] is None

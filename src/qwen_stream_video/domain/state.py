@@ -48,6 +48,15 @@ class SpatialObservation(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
 
 
+class RelationReference(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    relation_type: str
+    related_entity_id: str
+    window_global_index: int = Field(ge=0)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
 class AttributeState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -85,11 +94,14 @@ class GlobalEntityState(BaseModel):
     lifecycle_status: EntityLifecycleStatus = EntityLifecycleStatus.ACTIVE
     appearance_signature: dict[str, str] = Field(default_factory=dict)
     spatial_history: list[SpatialObservation] = Field(default_factory=list)
+    relation_history: list[RelationReference] = Field(default_factory=list)
     attributes: dict[str, AttributeState] = Field(default_factory=dict)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     evidence: list[EvidenceReference] = Field(default_factory=list)
     missing_window_count: int = 0
     appearance_conflicts: dict[str, int] = Field(default_factory=dict)
+    # Maps formal global entity_id -> number of consecutive confident observations.
+    delayed_merge_support: dict[str, int] = Field(default_factory=dict)
 
 
 class GlobalActionState(BaseModel):
@@ -110,6 +122,7 @@ class GlobalActionState(BaseModel):
     )
     end_time_interval: TimeInterval | None = None
     observed_windows: list[int] = Field(default_factory=list)
+    last_observed_time: float = 0.0
     missing_window_count: int = 0
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     evidence: list[EvidenceReference] = Field(default_factory=list)

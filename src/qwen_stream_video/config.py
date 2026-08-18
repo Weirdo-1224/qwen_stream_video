@@ -77,8 +77,8 @@ class ObservationConfig(BaseModel):
 
     schema_version: Literal["1.0", "2.0"] = "2.0"
     require_evidence_frames: bool = True
-    use_candidate_global_ids: bool = True
     allow_candidate_global_ids: bool = True
+    use_candidate_global_ids: bool | None = None
     context_policy: Literal["visual_only", "weak_context", "task_conditioned"] = "visual_only"
 
     @model_validator(mode="before")
@@ -87,14 +87,15 @@ class ObservationConfig(BaseModel):
         if not isinstance(value, Mapping):
             return value
         result = dict(value)
-        old = result.get("use_candidate_global_ids")
-        new = result.get("allow_candidate_global_ids")
-        if old is not None and new is not None and old != new:
+        # Keep the legacy alias in sync when only one form is provided.
+        legacy = result.get("use_candidate_global_ids")
+        current = result.get("allow_candidate_global_ids")
+        if legacy is not None and current is not None and legacy != current:
             raise ValueError("candidate global ID flags must match")
-        if old is not None and new is None:
-            result["allow_candidate_global_ids"] = old
-        if new is not None and old is None:
-            result["use_candidate_global_ids"] = new
+        if legacy is not None and current is None:
+            result["allow_candidate_global_ids"] = legacy
+        if current is not None and legacy is None:
+            result["use_candidate_global_ids"] = current
         return result
 
 
