@@ -164,6 +164,24 @@ def test_build_user_prompt_without_previous_summary(
     assert "candidate_global_id" in prompt
 
 
+def test_build_prompts_include_authoritative_schema_contract(
+    prompt_builder: PromptBuilder,
+    video_window: VideoWindow,
+    sampled_frames: list[SampledFrame],
+) -> None:
+    prompt = prompt_builder.build_user_prompt(video_window, sampled_frames)
+
+    assert '"$defs"' in prompt
+    assert '"additionalProperties":false' in prompt
+    assert "entity_type 只能使用 person、device、component、tool、ppe、sign、document、environment、unknown" in prompt
+    assert '"attribute_key"' in prompt
+    assert '"relation_type"' in prompt
+    assert '"actor_local_id"' in prompt
+    assert '"uncertainty_type"' in prompt
+    assert '"continuity_hint"' in prompt
+    assert '"additionalProperties":false' in prompt_builder.system_prompt
+
+
 def test_parse_valid_json_returns_batch_and_warnings(
     response_parser: ResponseParser,
     valid_batch: ObservationBatch,
@@ -306,4 +324,127 @@ def test_parse_forbidden_eval_not_used(
 ) -> None:
     raw = "__import__('os').system('echo pwned')"
     with pytest.raises(ModelOutputParseError):
+        response_parser.parse(raw, sampled_frames)
+
+
+def test_parse_local_qwen_compact_observation_format(
+    response_parser: ResponseParser,
+    sampled_frames: list[SampledFrame],
+    video_window: VideoWindow,
+) -> None:
+    raw = json.dumps(
+        {
+            "observation": {
+                "local_id": "person_0",
+                "candidate_global_id": None,
+                "phase": "other",
+                "evidence_frames": ["F0", "F1"],
+                "attributes": {
+                    "headwear": "red hard hat",
+                    "location": "in front of a panel",
+                },
+                "actions": [
+                    {
+                        "action": "operate",
+                        "phase": "commit",
+                        "evidence_frames": ["F1"],
+                    }
+                ],
+                "scene": {"view_type": "wide", "continuity": "continuous"},
+            }
+        }
+    )
+    batch, warnings = response_parser.parse(raw, sampled_frames, window=video_window)
+
+    assert batch.schema_version == "2.0"
+    assert batch.window.global_index == video_window.global_index
+    assert batch.entities[0].local_id == "person_0"
+    assert batch.entities[0].entity_type == EntityType.PERSON
+    assert batch.entities[0].appearance["headwear"] == "red hard hat"
+    assert batch.actions[0].action_type == "operate"
+    assert batch.actions[0].actor_local_id == "person_0"
+    assert batch.actions[0].evidence_frames == [1]
+    assert any("compact observation format" in warning for warning in warnings)
+
+
+def test_parse_schema_v2_without_window_uses_runtime_window(
+    response_parser: ResponseParser,
+    sampled_frames: list[SampledFrame],
+    video_window: VideoWindow,
+) -> None:
+    raw = json.dumps(
+        {
+            "schema_version": "2.0",
+            "scene": {},
+            "entities": [],
+            "actions": [],
+            "attribute_observations": [],
+            "relations": [],
+            "uncertainties": [],
+        }
+    )
+    batch, warnings = response_parser.parse(raw, sampled_frames, window=video_window)
+    assert batch.window.global_index == video_window.global_index
+    assert any("program-owned window" in warning for warning in warnings)
+
+
+def test_parse_local_shorthand_fields_inside_schema_v2(
+    response_parser: ResponseParser,
+    sampled_frames: list[SampledFrame],
+    video_window: VideoWindow,
+) -> None:
+    raw = json.dumps(
+        {
+            "schema_version": "2.0",
+            "scene": {},
+            "entities": [
+                {
+                    "local_id": "person_0",
+                    "entity_type": "person",
+                    "name": "person",
+                    "candidate_global_id": "person_0001",
+                    "confidence": 0.98,
+                    "evidence_frames": [0],
+                }
+            ],
+            "actions": [
+                {
+                    "local_id": "person_0",
+                    "actor_id": "person_0001",
+                    "target_id": "equipment_0001",
+                    "tool_id": None,
+                    "action": "operate",
+                    "phase": "commit",
+                    "start_frame": 1,
+                    "end_frame": 2,
+                }
+            ],
+            "attribute_observations": [
+                {
+                    "local_id": "person_0",
+                    "attribute_key": "wearing_hard_hat",
+                    "value": True,
+                    "evidence_frames": [0],
+                }
+            ],
+            "relations": [],
+            "uncertainties": [],
+        }
+    )
+    batch, warnings = response_parser.parse(raw, sampled_frames, window=video_window)
+    assert batch.actions[0].local_id == "local_action_0001"
+    assert batch.actions[0].actor_local_id == "person_local_0001"
+    assert batch.actions[0].action_type == "operate"
+    assert batch.actions[0].evidence_frames == [1, 2]
+    assert batch.attribute_observations[0].entity_local_id == "person_local_0001"
+    assert batch.attribute_observations[0].value == "True"
+    assert any("shorthand fields" in warning for warning in warnings)
+
+
+def test_local_qwen_adapter_does_not_invent_window_without_runtime_window(
+    response_parser: ResponseParser,
+    sampled_frames: list[SampledFrame],
+) -> None:
+    raw = json.dumps({"observation": {"local_id": "person_0"}})
+    with pytest.raises(ValueError, match="program-provided video window"):
         response_parser.parse(raw, sampled_frames)

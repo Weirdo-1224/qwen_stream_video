@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..domain import ObservationBatch
 from ..video import SampledFrame, VideoWindow
 
 DEFAULT_SYSTEM_PROMPT_PATH = Path(__file__).resolve().parents[3] / "prompts" / "system_prompt.txt"
@@ -42,6 +43,42 @@ Commit Interval: [{commit_start_seconds:.3f}, {window_end_seconds:.3f}) 秒
 请返回 Schema 2.0 JSON：窗口时间由程序覆盖；当前窗口未看到的实体不表示消失；不确定时保留 unknown 和 uncertainty。{task_context}"""
 
 
+def _observation_schema_contract() -> str:
+    """Return the authoritative Schema 2.0 contract for model prompts.
+
+    The contract is generated from the same Pydantic model used by the
+    response parser.  Keeping one source of truth prevents the remote model
+    prompt and runtime validator from drifting apart.
+    """
+    schema = json.dumps(
+        ObservationBatch.model_json_schema(),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return (
+        """\n\n=== 强制输出协议：Observation Schema 2.0 ===
+下面的 JSON Schema 是程序解析器使用的权威协议。你的输出必须严格遵守它。
+
+规则：
+1. 只输出一个 JSON 对象，不要输出 Markdown、注释或额外文字。
+2. 除 Schema 中列出的字段外，禁止输出任何字段（尤其禁止 attribute_value、object_description、object_local_id、relation、scope、severity）。
+3. entity_type 只能使用 person、device、component、tool、ppe、sign、document、environment、unknown。
+4. scene.continuity_hint 只能使用 continuous、reframed、camera_change、unknown。
+5. uncertainty 必须使用 uncertainty_type、description、related_local_ids、evidence_frames；不要使用 type、scope、severity。
+6. attribute 必须使用 value；不要使用 attribute_value。关系必须使用 relation_type 和 object_local_id。
+7. action 必须使用 action_type、actor_local_id、target_local_id、tool_local_id；不要使用 object_local_id。
+8. local_id 只能是当前窗口的局部 ID，例如 person_0；不得创建正式 global_entity_id。
+9. evidence_frames 只能引用当前抽样帧的 sample_index。
+10. actor_local_id、target_local_id、tool_local_id、entity_local_id、subject_local_id、object_local_id 必须引用本次输出 entities 中存在的 local_id；无法确认时使用 null 或省略对应动作/关系。
+11. window 字段由程序写入，可以省略；如果输出，必须符合下面 Schema。
+
+权威 JSON Schema（不要照抄示例中的空数组，必须填写当前画面事实）：
+"""
+        + schema
+    )
+
+
 def _load_template(path: Path, fallback: str) -> str:
     try:
         if path.is_file():
@@ -60,7 +97,8 @@ class PromptBuilder:
         context_policy: str = "visual_only",
     ) -> None:
         self.context_policy = context_policy
-        self.system_prompt = system_prompt or _load_template(DEFAULT_SYSTEM_PROMPT_PATH, DEFAULT_SYSTEM_PROMPT)
+        base_system_prompt = system_prompt or _load_template(DEFAULT_SYSTEM_PROMPT_PATH, DEFAULT_SYSTEM_PROMPT)
+        self.system_prompt = base_system_prompt + _observation_schema_contract()
         self.user_prompt_template = user_prompt_template or _load_template(
             DEFAULT_USER_PROMPT_PATH, DEFAULT_USER_PROMPT_TEMPLATE
         )
@@ -118,4 +156,7 @@ class PromptBuilder:
             previous_summary=previous_summary or "",
             previous_entities=json.dumps(previous_entities or [], ensure_ascii=False),
         )
-        return rendered
+        # Append the contract even when a custom user template is supplied.
+        # This guarantees that every provider receives the same authoritative
+        # schema and field restrictions.
+        return rendered + _observation_schema_contract()

@@ -153,6 +153,7 @@ class RunStorage:
         self._errors_file = None
         self._observations_file = None
         self._start_time: datetime | None = None
+        self._window_records: dict[int, dict[str, Any]] = {}
 
     def _ensure_unique_run_dir(self) -> None:
         """Create the run directory, failing if it already exists."""
@@ -173,9 +174,33 @@ class RunStorage:
 
     def write_windows(self, windows: list[VideoWindow]) -> None:
         """Write all video windows to ``windows.jsonl``."""
+        self._window_records = {
+            window.global_index: window.model_dump(mode="json") for window in windows
+        }
+        self._rewrite_windows()
+
+    def _rewrite_windows(self) -> None:
+        """Persist the current window records, including sampling metadata."""
         with self._windows_path.open("w", encoding="utf-8") as handle:
-            for window in windows:
-                handle.write(window.model_dump_json() + "\n")
+            for record in self._window_records.values():
+                handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+
+    def _record_sampled_frames(
+        self, window: VideoWindow, sampled_frames: list[SampledFrame]
+    ) -> None:
+        """Persist serializable sample-index/timestamp metadata for a window."""
+        record = self._window_records.get(window.global_index)
+        if record is None:
+            return
+        record["sampled_frames"] = [
+            {
+                "sample_index": frame.sample_index,
+                "frame_index": frame.frame_index,
+                "timestamp_seconds": frame.timestamp_seconds,
+            }
+            for frame in sampled_frames
+        ]
+        self._rewrite_windows()
 
     def write_window_result(
         self,
@@ -206,6 +231,7 @@ class RunStorage:
             context_characters: Length of the serialized context sent to the model.
         """
         self._window_count += 1
+        self._record_sampled_frames(window, sampled_frames)
         raw_response_path = None
 
         if raw_result is not None and self.config.storage.save_raw_responses:

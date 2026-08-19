@@ -177,8 +177,7 @@ class EntityRegistry:
         if timestamps:
             earliest = min(timestamps)
             latest = max(timestamps)
-            if earliest < entity.first_seen_time:
-                entity.first_seen_time = earliest
+            entity.first_seen_time = min(entity.first_seen_time, earliest)
             entity.last_seen_time = latest
         entity.current_scene_id = scene_id
         entity.visibility = VisibilityState.VISIBLE

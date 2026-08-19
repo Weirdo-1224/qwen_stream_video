@@ -392,7 +392,7 @@ def test_eight_window_maintenance_sequence(tmp_path: Path) -> None:
 
     # No extra temporary/formal person entity with the same canonical name.
     seen_names: set[str] = set()
-    for eid, ent in final["entities"].items():
+    for ent in final["entities"].values():
         if ent["entity_type"] == "person":
             assert ent["canonical_name"] not in seen_names, f"duplicate person name {ent['canonical_name']}"
             seen_names.add(ent["canonical_name"])

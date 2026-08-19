@@ -346,9 +346,11 @@ def test_artifacts_contain_prompts_schema_and_vocabularies(
     storage.initialize(prompt_builder=prompt_builder)
 
     artifacts = storage.run_dir / "artifacts"
-    assert (artifacts / "prompts" / "observation_system.txt").read_text(
+    saved_system_prompt = (artifacts / "prompts" / "observation_system.txt").read_text(
         encoding="utf-8"
-    ) == "system prompt body"
+    )
+    assert saved_system_prompt.startswith("system prompt body")
+    assert "Observation Schema 2.0" in saved_system_prompt
     assert (artifacts / "prompts" / "observation_user.txt").read_text(
         encoding="utf-8"
     ) == "user prompt body"

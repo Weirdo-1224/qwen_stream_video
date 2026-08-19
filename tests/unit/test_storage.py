@@ -184,6 +184,14 @@ def test_jsonl_outputs(
     windows = _read_jsonl(storage.run_dir / "windows.jsonl")
     assert len(windows) == 1
     assert windows[0]["global_index"] == video_window.global_index
+    assert windows[0]["sampled_frames"] == [
+        {
+            "sample_index": frame.sample_index,
+            "frame_index": frame.frame_index,
+            "timestamp_seconds": frame.timestamp_seconds,
+        }
+        for frame in sampled_frames
+    ]
 
     observations = _read_jsonl(storage.run_dir / "observations.jsonl")
     assert len(observations) == 1

@@ -14,4 +14,6 @@ Commit Interval: [{commit_start_seconds:.3f}, {window_end_seconds:.3f}) 秒
 动作词表摘要：observe, inspect, hand_over, receive, push, pull, hover, pick_up, put_down, press, release, open, close, operate, other, unknown
 属性使用 canonical attribute_key；视觉事实和任务条件解释必须分离。
 
-请返回 Schema 2.0 JSON：窗口时间由程序覆盖；当前窗口未看到的实体不表示消失；不确定时保留 unknown 和 uncertainty。{task_context}
+请直接返回 Schema 2.0 JSON 对象，不要添加 observation 外层包装，不要输出 Markdown。必须根据当前图像填写实际看到的内容，不要为了套用模板而把所有数组留空；只有确实没有看到对应内容时才使用空数组。参考结构（仅示意，必须替换为当前画面事实）：
+{{"schema_version":"2.0","scene":{{"camera_change":false,"view_type":"wide","scene_visibility":"clear","target_visibility":"clear","continuity_hint":"continuous"}},"entities":[{{"local_id":"person_0","entity_type":"person","name":"person","confidence":0.7,"evidence_frames":[0]}}],"actions":[],"attribute_observations":[],"relations":[],"uncertainties":[]}}
+窗口时间由程序写入；当前窗口未看到的实体不表示消失；不确定时保留 unknown 和 uncertainty。{task_context}

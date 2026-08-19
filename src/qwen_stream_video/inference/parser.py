@@ -13,6 +13,7 @@ import re
 from ..domain import ObservationBatch
 from ..exceptions import ModelOutputParseError, ModelOutputSchemaError
 from ..video import SampledFrame, VideoWindow
+from .local_adapter import LocalObservationAdapter
 from .validator import ObservationSemanticValidator
 
 CODE_BLOCK_RE = re.compile(r"```(?:json)?\s*\n?(.*?)```", re.DOTALL)
@@ -21,7 +22,11 @@ CODE_BLOCK_RE = re.compile(r"```(?:json)?\s*\n?(.*?)```", re.DOTALL)
 class ResponseParser:
     """Parse raw model responses into validated observation batches."""
 
-    def __init__(self, validator: ObservationSemanticValidator | None = None) -> None:
+    def __init__(
+        self,
+        validator: ObservationSemanticValidator | None = None,
+        local_adapter: LocalObservationAdapter | None = None,
+    ) -> None:
         """Initialize with an optional semantic validator.
 
         Args:
@@ -30,6 +35,7 @@ class ResponseParser:
                 ``None``.
         """
         self.validator = validator or ObservationSemanticValidator()
+        self.local_adapter = local_adapter or LocalObservationAdapter()
 
     def parse(
         self,
@@ -63,9 +69,14 @@ class ResponseParser:
         """
         json_str = self._extract_json(raw_text)
         data = self._load_json(json_str)
+        adapter_result = self.local_adapter.adapt(data, sampled_frames, window)
+        adapter_warnings: list[str] = []
+        if adapter_result is not None:
+            data, adapter_warnings = adapter_result
+        data, window_warnings = self._apply_runtime_window(data, window)
         batch = self._validate_schema(data)
         warnings = self.validator.validate(batch, sampled_frames, window=window)
-        return batch, warnings
+        return batch, adapter_warnings + window_warnings + warnings
 
     @staticmethod
     def _extract_json(raw_text: str) -> str:
@@ -95,6 +106,25 @@ class ResponseParser:
             raise ModelOutputParseError(
                 f"Model output is not valid JSON: {exc}"
             ) from exc
+
+    @staticmethod
+    def _apply_runtime_window(
+        data: dict,
+        window: VideoWindow | None,
+    ) -> tuple[dict, list[str]]:
+        """Fill the program-owned window when the model omits it."""
+        if window is None or "window" in data:
+            return data, []
+        if data.get("schema_version") != "2.0":
+            return data, []
+        updated = dict(data)
+        updated["window"] = {
+            "global_index": window.global_index,
+            "start_seconds": window.start_seconds,
+            "commit_start_seconds": window.commit_start_seconds,
+            "end_seconds": window.end_seconds,
+        }
+        return updated, ["Injected the program-owned window into Schema 2.0 output"]
 
     @staticmethod
     def _validate_schema(data: dict) -> ObservationBatch:

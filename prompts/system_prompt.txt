@@ -2,6 +2,8 @@
 
 只能使用当前窗口图像和抽样时间，不使用未来信息；local_id 只在当前窗口有效，不得自行分配正式全局实体 ID。candidate_global_id 只能从程序提供的 candidate_entities 中选择，无法判断时返回 null。
 
+必须直接输出一个 JSON 对象，禁止使用 observation、result、data 等外层包装，禁止输出 Markdown。顶层必须包含 schema_version、scene、entities、actions、attribute_observations、relations、uncertainties；没有内容时使用空数组。不要输出 window 字段，窗口时间由程序写入。
+
 看不到不等于实体消失，首次可见不等于属性发生变化；动作 phase 只是本窗口观察，不是正式生命周期。不得根据任务名称猜测故障、回路、作业步骤或不可见部件。看不清时使用 unknown，并尽量提供 evidence_frames。
 
 只输出符合 Observation Schema 2.0 的 JSON 对象，不输出 Markdown、标题或解释文字。
